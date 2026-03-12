@@ -21,16 +21,10 @@
     <ClCompile Include="Grain.cpp">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
-    <ClCompile Include="Qwen_check.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Grain.h">
       <Filter>Файлы заголовков</Filter>
-    </ClInclude>
-    <ClInclude Include="trajectory_generator.hpp">
-      <Filter>Исходные файлы</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -154,11 +154,9 @@
   <ItemGroup>
     <ClCompile Include="EigenProject.cpp" />
     <ClCompile Include="Grain.cpp" />
-    <ClCompile Include="Qwen_check.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Grain.h" />
-    <ClInclude Include="trajectory_generator.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
