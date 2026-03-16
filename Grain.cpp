@@ -193,6 +193,8 @@ Grain::Grain(std::string info)
 	}
 	
 	file >> tc0;
+
+	file >> strain_rate_infl;
 	
 	time = 0;
 	acc_def = 0;
@@ -328,7 +330,15 @@ bool Grain::check_elastic(double dt)
 void Grain::find_SS(double dT)
 { 
 
-	double du = D_v.dot(D_v);
+	// Интенсивность скорости деформаций по J2 в 6D-нотации Фойгта
+	double trD = D_v(0) + D_v(1) + D_v(2);
+	double mean = trD / 3.0;
+	double d1 = D_v(0) - mean;
+	double d2 = D_v(1) - mean;
+	double d3 = D_v(2) - mean;
+	double j2 = d1 * d1 + d2 * d2 + d3 * d3
+		+ 0.5 * (D_v(3) * D_v(3) + D_v(4) * D_v(4) + D_v(5) * D_v(5));
+	double du = std::sqrt(2.0 / 3.0 * j2);
 
 	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 		if (last_step[i])
@@ -342,7 +352,7 @@ void Grain::find_SS(double dT)
 		if (t > tc[i])
 		{
 			new_step[i] = 1;
-			sp_shifts[i] = 1e-2*du*pow(fabs(t / tc[i]), 100.0);
+			sp_shifts[i] = strain_rate_infl *du*pow(fabs(t / tc[i]), 100.0);
 		}
 		else
 		{

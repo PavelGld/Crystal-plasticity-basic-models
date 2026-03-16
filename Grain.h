@@ -27,7 +27,7 @@ class Grain
 	double degree, factor;// ��������� � ��������� ���������� ����������
 
 	double A, q, h0, ts, alfa;// ��������� � ������������� ����������
-
+	double strain_rate_infl;
 	Eigen::Matrix3d Buf;// ������ �� ������ ������������� ��� ������
 	Vector6d Buf_v;
 
