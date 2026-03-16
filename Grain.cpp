@@ -54,6 +54,24 @@ static Eigen::Matrix3d voigtToTensor(const Eigen::Matrix<double, 6, 1>& v) {
 	return A;
 }
 
+// Преобразование 3x3 → Vector9d (строчно-мажорная развёртка)
+static Eigen::Matrix<double, 9, 1> tensorTo9d(const Eigen::Matrix3d& A) {
+	Eigen::Matrix<double, 9, 1> v;
+	for (int i = 0; i < 3; ++i)
+		for (int j = 0; j < 3; ++j)
+			v(3 * i + j) = A(i, j);
+	return v;
+}
+
+// Обратное преобразование Vector9d → 3x3
+static Eigen::Matrix3d nineDToTensor(const Eigen::Matrix<double, 9, 1>& v) {
+	Eigen::Matrix3d A;
+	for (int i = 0; i < 3; ++i)
+		for (int j = 0; j < 3; ++j)
+			A(i, j) = v(3 * i + j);
+	return A;
+}
+
 Grain::Grain(std::string info)
 {
 
@@ -69,6 +87,8 @@ Grain::Grain(std::string info)
 	M.resize(num_slyde_sys * 2);
 	Wpm.resize(num_slyde_sys * 2);
 	Ms_v.resize(num_slyde_sys * 2);
+	M_9.resize(num_slyde_sys * 2);
+	Wpm_9.resize(num_slyde_sys * 2);
 
 	for (int i = 0; i < num_slyde_sys; i++)
 	{
@@ -103,6 +123,8 @@ Grain::Grain(std::string info)
 			}
 		Eigen::Matrix3d Ms = 0.5 * (M[i * 2] + M[i * 2].transpose());
 		Ms_v[i * 2] = tensorToVoigt(Ms);
+		M_9[i * 2]   = tensorTo9d(M[i * 2]);
+		Wpm_9[i * 2] = tensorTo9d(Wpm[i * 2]);
 	
 		for (int j = 0; j < 3; j++)
 			b[j] = -1 * b[j];
@@ -118,6 +140,8 @@ Grain::Grain(std::string info)
 			}
 		Eigen::Matrix3d Ms2 = 0.5 * (M[i * 2 + 1] + M[i * 2 + 1].transpose());
 		Ms_v[i * 2 + 1] = tensorToVoigt(Ms2);
+		M_9[i * 2 + 1]   = tensorTo9d(M[i * 2 + 1]);
+		Wpm_9[i * 2 + 1] = tensorTo9d(Wpm[i * 2 + 1]);
 	
 	
 	
@@ -177,12 +201,17 @@ Grain::Grain(std::string info)
 	Buf.setZero();// тензор на случай необходимости доп памяти
 
 	W.setZero();
+	W_9 = tensorTo9d(W);
 	Spin.setZero();
 	Wp.setZero();
 	Z.setZero();
+	Z_9  = tensorTo9d(Z);
 	Ze.setZero();
+	Ze_9 = tensorTo9d(Ze);
 	Zp.setZero();
+	Zp_9 = tensorTo9d(Zp);
 	L.setZero();
+	L_9  = tensorTo9d(L);
 	Deformation.setZero();
 	F.setIdentity();
 
@@ -219,12 +248,17 @@ void Grain::clear()
 	Buf.setZero();
 	Buf_v.setZero();
 	W.setZero();
+	W_9 = tensorTo9d(W);
 	Wp.setZero();
 	Z.setZero();
+	Z_9  = tensorTo9d(Z);
 	Ze.setZero();
+	Ze_9 = tensorTo9d(Ze);
 	Zp.setZero();
+	Zp_9 = tensorTo9d(Zp);
 	Dp_v.setZero();
 	D_v.setZero();
+	L_9 = tensorTo9d(L);
 	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 	{
 		last_step[i] = new_step[i];
@@ -353,6 +387,7 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 	clear();
 
 	L = Lnew;
+	L_9 = tensorTo9d(L);
 	Eigen::Matrix3d D = 0.5 * (L + L.transpose());
 	D_v = tensorToVoigt(D);
 
@@ -375,6 +410,9 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 
 	F = (dt*L).exp() * F;
 	Deformation = 0.5 * (F.transpose() * F - Eigen::Matrix3d::Identity());
+
+	// При желании можно вызывать здесь пересчёт всех 9D-представлений:
+	// Update9D();
 
 }
 

@@ -7,6 +7,7 @@ class Grain
 {
 	using Vector6d = Eigen::Matrix<double, 6, 1>;
 	using Matrix6d = Eigen::Matrix<double, 6, 6>;
+	using Vector9d = Eigen::Matrix<double, 9, 1>;
 
 	unsigned hard_mode, rot_mode;
 
@@ -17,6 +18,10 @@ class Grain
 	std::vector<Eigen::Matrix3d> Wpm;
 
 	std::vector<Vector6d> Ms_v;
+
+	// Полные 9D-представления (строчно-мажорная развёртка 3x3)
+	std::vector<Vector9d> M_9;
+	std::vector<Vector9d> Wpm_9;
 
 	Eigen::MatrixXd H;
 	double degree, factor;// ��������� � ��������� ���������� ����������
@@ -35,6 +40,12 @@ class Grain
 	Vector6d Dp_v;
 	Eigen::Matrix3d L;
 	Vector6d D_v;
+	// 9D-представления тензоров шага
+	Vector9d L_9;
+	Vector9d Z_9;
+	Vector9d Ze_9;
+	Vector9d Zp_9;
+	Vector9d W_9;
 	Eigen::Matrix3d Deformation;
 	Eigen::Matrix3d F;
 
