@@ -16,7 +16,7 @@ class Grain
 	std::vector<Eigen::Matrix3d> M;
 	std::vector<Eigen::Matrix3d> Wpm;
 
-	std::vector<Vector6d> M_v;
+	std::vector<Vector6d> Ms_v;
 
 	Eigen::MatrixXd H;
 	double degree, factor;// ��������� � ��������� ���������� ����������
@@ -32,9 +32,9 @@ class Grain
 	Eigen::Matrix3d Z;
 	Eigen::Matrix3d Ze;
 	Eigen::Matrix3d Zp;
-	Vector6d Zp_v;
+	Vector6d Dp_v;
 	Eigen::Matrix3d L;
-	Vector6d L_v;
+	Vector6d D_v;
 	Eigen::Matrix3d Deformation;
 	Eigen::Matrix3d F;
 

@@ -68,7 +68,7 @@ Grain::Grain(std::string info)
 	//M Wpm;
 	M.resize(num_slyde_sys * 2);
 	Wpm.resize(num_slyde_sys * 2);
-	M_v.resize(num_slyde_sys * 2);
+	Ms_v.resize(num_slyde_sys * 2);
 
 	for (int i = 0; i < num_slyde_sys; i++)
 	{
@@ -101,7 +101,8 @@ Grain::Grain(std::string info)
 				M[i * 2](j, k) = b[k]*n[j];
 				Wpm[i * 2](j, k) = 0.5*(b[k] * n[j]- b[j] * n[k]);
 			}
-		M_v[i * 2] = tensorToVoigt(M[i * 2]);
+		Eigen::Matrix3d Ms = 0.5 * (M[i * 2] + M[i * 2].transpose());
+		Ms_v[i * 2] = tensorToVoigt(Ms);
 	
 		for (int j = 0; j < 3; j++)
 			b[j] = -1 * b[j];
@@ -115,7 +116,8 @@ Grain::Grain(std::string info)
 				M[i * 2 + 1](j, k) += b[k] * n[j];
 				Wpm[i * 2 + 1](j, k) += 0.5*(b[k] * n[j] - b[j] * n[k]);
 			}
-		M_v[i * 2 + 1] = tensorToVoigt(M[i * 2 + 1]);
+		Eigen::Matrix3d Ms2 = 0.5 * (M[i * 2 + 1] + M[i * 2 + 1].transpose());
+		Ms_v[i * 2 + 1] = tensorToVoigt(Ms2);
 	
 	
 	
@@ -149,8 +151,8 @@ Grain::Grain(std::string info)
 	}
 
 	H.resize(num_slyde_sys * 2, num_slyde_sys * 2);
-	L_v.setZero();
-	Zp_v.setZero();
+	D_v.setZero();
+	Dp_v.setZero();
 	Stress_v.setZero();
 
 	if (hard_mode == 2)
@@ -221,8 +223,8 @@ void Grain::clear()
 	Z.setZero();
 	Ze.setZero();
 	Zp.setZero();
-	Zp_v.setZero();
-	L_v.setZero();
+	Dp_v.setZero();
+	D_v.setZero();
 	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 	{
 		last_step[i] = new_step[i];
@@ -236,11 +238,11 @@ bool Grain::check_elastic(double dt)
 
 	bool TF = true;
 
-	Buf_v = Stress_v + P_v * L_v * dt;
+	Buf_v = Stress_v + P_v * D_v * dt;
 
 	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 	{
-		double t = Buf_v.dot(M_v[i]);
+		double t = Buf_v.dot(Ms_v[i]);
 		if (t > tc[i])
 			TF = false;
 	}
@@ -251,7 +253,7 @@ bool Grain::check_elastic(double dt)
 
 		for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 		{
-			double t = Stress_v.dot(M_v[i]);
+			double t = Stress_v.dot(Ms_v[i]);
 			if (t > tc[i])
 				was_in_plastic = true;
 		}
@@ -267,8 +269,8 @@ bool Grain::check_elastic(double dt)
 			double buft(1e300);
 			for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 			{
-				double ai = (P_v*L_v).dot(M_v[i]);
-				double t = Stress_v.dot(M_v[i]);
+				double ai = (P_v*D_v).dot(Ms_v[i]);
+				double t = Stress_v.dot(Ms_v[i]);
 				if (ai > 0)
 				{
 					if ((tc[i] - t) / ai < buft)
@@ -277,7 +279,7 @@ bool Grain::check_elastic(double dt)
 			}
 			Sum_time += buft;
 			dT -= buft;
-			Stress_v += P_v * L_v * dT;
+			Stress_v += P_v * D_v * dT;
 			Buf_v.setZero();
 			integrate();
 			return false;
@@ -292,17 +294,17 @@ bool Grain::check_elastic(double dt)
 void Grain::find_SS(double dT)
 { 
 
-	double du = L_v.dot(L_v);
+	double du = D_v.dot(D_v);
 
 	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 		if (last_step[i])
-			Zp_v += M_v[i] * sp_shifts[i];
+			Dp_v += Ms_v[i] * sp_shifts[i];
 
-	Buf_v = Stress_v + P_v * (L_v - Zp_v) * dT;
+	Buf_v = Stress_v + P_v * (D_v - Dp_v) * dT;
 
 	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 	{
-		double t = Buf_v.dot(M_v[i]);
+		double t = Buf_v.dot(Ms_v[i]);
 		if (t > tc[i])
 		{
 			new_step[i] = 1;
@@ -351,7 +353,8 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 	clear();
 
 	L = Lnew;
-	L_v = tensorToVoigt(L);
+	Eigen::Matrix3d D = 0.5 * (L + L.transpose());
+	D_v = tensorToVoigt(D);
 
 	dT = 0;
 	Sum_time = 0;
