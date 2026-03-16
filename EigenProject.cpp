@@ -27,7 +27,7 @@ int main()
 	Eigen::VectorXd Stress;
 	
 	double dt = 1e-2;
-	for (unsigned i = 0; i < 1000; i++)
+	for (unsigned i = 0; i < 5000; i++)
 	{
 		if (i == 20)
 			std::cout << "here" << '\n';
