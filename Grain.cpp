@@ -1,42 +1,58 @@
-﻿#include "Grain.h"
+#include "Grain.h"
 #include <iostream>
 #include <fstream>
 #include <unsupported/Eigen/MatrixFunctions>
 
-int tensorToVoigtIndex(int i, int j) {
+// Низкоуровневое сопоставление индексов (как в исходной реализации)
+static int tensorToVoigtIndex(int i, int j) {
 	static const int voigt_index[3][3] = {
-		{0, 5, 4},  // i=0: 00:0, 01:5, 02:4
-		{5, 1, 3},  // i=1: 10:5, 11:1, 12:3
-		{4, 3, 2}   // i=2: 20:4, 21:3, 22:2
+		{0, 5, 4},  // (0,0), (0,1)/(1,0), (0,2)/(2,0)
+		{5, 1, 3},
+		{4, 3, 2}
 	};
-
-	if (i < 0 || i > 2 || j < 0 || j > 2) {
-		std::cerr << "Ошибка: индексы должны быть в диапазоне 0-2" << std::endl;
-		return -1;
-	}
-
 	return voigt_index[i][j];
 }
 
-std::pair<int, int> voigtToTensorIndex(int voigt_idx) {
+static std::pair<int, int> voigtToTensorIndex(int voigt_idx) {
 	static const std::pair<int, int> tensor_index[6] = {
-		{0, 0},  // 0 : (0,0)
-		{1, 1},  // 1 : (1,1)
-		{2, 2},  // 2 : (2,2)
-		{1, 2},  // 3 : (1,2) и (2,1) 
-		{0, 2},  // 4 : (0,2) и (2,0)
-		{0, 1}   // 5 : (0,1) и (1,0)
+		{0, 0},
+		{1, 1},
+		{2, 2},
+		{1, 2},
+		{0, 2},
+		{0, 1}
 	};
-
-	if (voigt_idx < 0 || voigt_idx > 5) {
-		std::cerr << "Ошибка: индекс Фойгта должен быть в диапазоне 0-5" << std::endl;
-		return { -1, -1 };
-	}
-
 	return tensor_index[voigt_idx];
 }
 
+// Преобразование 3x3 → Vector6d: для симметричных тензоров
+// вне диагонали получается инженерная сдвиговая компонента (сумма пар).
+static Eigen::Matrix<double, 6, 1> tensorToVoigt(const Eigen::Matrix3d& A) {
+	Eigen::Matrix<double, 6, 1> v;
+	v.setZero();
+	for (int i = 0; i < 3; ++i)
+		for (int j = 0; j < 3; ++j)
+			v(tensorToVoigtIndex(i, j)) += A(i, j);
+	return v;
+}
 
+// Обратное преобразование Vector6d → симметричный 3x3
+static Eigen::Matrix3d voigtToTensor(const Eigen::Matrix<double, 6, 1>& v) {
+	Eigen::Matrix3d A;
+	A.setZero();
+	for (int k = 0; k < 6; ++k) {
+		auto ij = voigtToTensorIndex(k);
+		int i = ij.first;
+		int j = ij.second;
+		if (i == j) {
+			A(i, j) = v(k);
+		} else {
+			A(i, j) += 0.5 * v(k);
+			A(j, i) += 0.5 * v(k);
+		}
+	}
+	return A;
+}
 
 Grain::Grain(std::string info)
 {
@@ -79,16 +95,13 @@ Grain::Grain(std::string info)
 		M[i * 2].setZero();
 		Wpm[i * 2].setZero();
 
-		M_v[i * 2].resize(6);
-		M_v[i * 2].setZero();
-
 		for (int j = 0; j < 3; j++)
 			for (int k = 0; k < 3; k++)
 			{
 				M[i * 2](j, k) = b[k]*n[j];
 				Wpm[i * 2](j, k) = 0.5*(b[k] * n[j]- b[j] * n[k]);
-				M_v[i * 2](tensorToVoigtIndex(j,k)) += b[j] * n[k];
 			}
+		M_v[i * 2] = tensorToVoigt(M[i * 2]);
 	
 		for (int j = 0; j < 3; j++)
 			b[j] = -1 * b[j];
@@ -96,16 +109,13 @@ Grain::Grain(std::string info)
 		M[i * 2 + 1].setZero();
 		Wpm[i * 2 + 1].setZero();
 
-		M_v[i * 2 + 1].resize(6);
-		M_v[i * 2 + 1].setZero();
-
 		for (int j = 0; j < 3; j++)
 			for (int k = 0; k < 3; k++)
 			{
 				M[i * 2 + 1](j, k) += b[k] * n[j];
 				Wpm[i * 2 + 1](j, k) += 0.5*(b[k] * n[j] - b[j] * n[k]);
-				M_v[i * 2 + 1](tensorToVoigtIndex(j, k)) += b[j] * n[k];
 			}
+		M_v[i * 2 + 1] = tensorToVoigt(M[i * 2 + 1]);
 	
 	
 	
@@ -126,7 +136,6 @@ Grain::Grain(std::string info)
 	P(0, 0, 1, 1) = P(1, 1, 0, 0) = P(1, 1, 2, 2) = P(2, 2, 1, 1) = P(2, 2, 0, 0) = P(0, 0, 2, 2) = c2;
 	P(0, 1, 0, 1) = P(1, 0, 0, 1) = P(0, 1, 1, 0) = P(1, 0, 1, 0) = P(1, 2, 1, 2) = P(1, 2, 2, 1) = P(2, 1, 1, 2) = P(2, 1, 2, 1) = P(2, 0, 2, 0) = P(0, 2, 2, 0) = P(2, 0, 0, 2) = P(0, 2, 0, 2) = c3;
 	
-	P_v.resize(6, 6);
 	P_v.setZero();
 
 	for (unsigned i = 0; i < 6; i++)
@@ -140,11 +149,8 @@ Grain::Grain(std::string info)
 	}
 
 	H.resize(num_slyde_sys * 2, num_slyde_sys * 2);
-	L_v.resize(6);
 	L_v.setZero();
-	Zp_v.resize(6);
 	Zp_v.setZero();
-	Stress_v.resize(6);
 	Stress_v.setZero();
 
 	if (hard_mode == 2)
@@ -345,9 +351,7 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 	clear();
 
 	L = Lnew;
-	for (unsigned i = 0; i < 3; i++)
-		for (unsigned j = 0; j < 3; j++)
-			L_v(tensorToVoigtIndex(i, j)) += L(i, j);
+	L_v = tensorToVoigt(L);
 
 	dT = 0;
 	Sum_time = 0;
@@ -371,7 +375,7 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 
 }
 
-Eigen::VectorXd Grain::get_stress()
+Eigen::Matrix<double, 6, 1> Grain::get_stress()
 {
 	return Stress_v;
 }
