@@ -3,3 +3,5 @@ Qwen_check.cpp
 trajectory_generator.hpp
 .vs/
 .cursor/
+Crystallite.cpp
+Crystallite.h

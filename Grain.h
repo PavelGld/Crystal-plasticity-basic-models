@@ -1,5 +1,6 @@
 #pragma once
 #include <Eigen/Dense>
+#include <Eigen/Geometry>
 #include <unsupported/Eigen/CXX11/Tensor>
 #include <string>
 
@@ -17,6 +18,10 @@ class Grain
 	std::vector<Eigen::Matrix3d> M;
 	std::vector<Eigen::Matrix3d> Wpm;
 
+	// Начальные тензоры систем скольжения в КСК (постоянны, не меняются)
+	std::vector<Eigen::Matrix3d> M0;
+	std::vector<Eigen::Matrix3d> Wpm0;
+
 	std::vector<Vector6d> Ms_v;
 
 	// Полные 9D-представления (строчно-мажорная развёртка 3x3)
@@ -24,11 +29,11 @@ class Grain
 	std::vector<Vector9d> Wpm_9;
 
 	Eigen::MatrixXd H;
-	double degree, factor;// ��������� � ��������� ���������� ����������
+	double degree, factor;// параметры степенного закона упрочнения
 
-	double A, q, h0, ts, alfa;// ��������� � ������������� ����������
+	double A, q, h0, ts, alfa;// параметры нелинейного упрочнения
 	double strain_rate_infl;
-	Eigen::Matrix3d Buf;// ������ �� ������ ������������� ��� ������
+	Eigen::Matrix3d Buf;// буфер на случай необходимости доп памяти
 	Vector6d Buf_v;
 
 	Eigen::Matrix3d W;
@@ -53,11 +58,14 @@ class Grain
 	Vector6d Stress_v;
 	Eigen::Matrix3d Orient;
 
+	// Ориентация зерна: кватернион, задающий поворот КСК → ЛСК
+	Eigen::Quaterniond orient_q;
+
 	std::vector<bool> last_step;
 	std::vector<bool> new_step;
 
-	long int random_state;// ��� ��������� ���������
-	long int num_crystall;// ����� ���������
+	long int random_state;// для генерации случайных
+	long int num_crystall;// номер кристаллита
 
 	std::vector<double> tc;
 	std::vector<double> tc_copy;
@@ -68,7 +76,7 @@ class Grain
 	std::vector<double> sp_shifts;
 
 	int num_slyde_sys;
-	int linear_mode;// ����� �������������
+	int linear_mode;// режим линеаризации
 	double sum_shifts;
 
 	double acc_def, time, stress_inten;
@@ -79,43 +87,24 @@ class Grain
 	double dT;
 	double Sum_time;
 	void find_SS(double dT);
-	void integrate();
+	void integrate(double dt);
 
-	//
-	////Tensor find_We(vector<double> Sp_shifts);
-	////Tensor find_Dp(vector<double> Sp_shifts);
-	//
-	//bool Flexibility_test(double dT);// �������� �� �������� ���� �������. ���� ��� ����� ������� �������, �� ������ 1 � ����� ��������� ������, ����� ������� �� ������ ��������� ����� � �������� �� ������ ���� � new_step
-	//int checking_old_SS(double dT);// �������� ����� �� ������� ��� � ��������� � �������� ���� ��, ���� ��, �� ������ "-1" � ����������� � ����, ����� ������ ����� �� ������� ����� ������������ (�� � ����. �����������) 
-	//double find_dt(double sum_t, double dT, int num);// ����� ������� ��� ��������� �������� ������� ���������� � ���������� ����. ���������� ���������� ��������� ��. ���������� ��������� ��� �� �������
-	//
-	//
-	//void new_tc(double dT);
-	//void new_shifts(double dT);
-	//
-	//void old_tc(double dT);
-	//void old_shifts(double dT);
-	//
-	//void update_orient(double dt);
-	//
-	//double get_MPM(unsigned i, unsigned j);
-	//double get_MPD(unsigned ind1);
-	//
-	//void Reset(double tc0);// �������� ��� �������� �� � ���������� �� � ���������� ���������
-	//
-	//void Set_H_Params(double E, double k, double newtc);
-	//
-	//void Set_const_model(double E, double newtc);
-	//
-	//void Set_st_Params(double factor, double degree, double newtc);
+	// Вычисляет пластический спин Wp = sum_alpha (gamma_dot_alpha * Wpm[alpha])
+	Eigen::Matrix3d computePlasticSpin() const;
+
+	// Обновляет кватернион ориентации по спину Omega за время dt
+	void updateOrientation(const Eigen::Matrix3d& Omega, double dt);
 
 public:
-	//Grain();
-	//~Grain();
 	Grain(std::string info);
 	void Simulate_Step(double dt, Eigen::Matrix3d Lnew);
 
 	Grain::Vector6d get_stress();
 
+	// Возвращает текущий кватернион ориентации (КСК → ЛСК)
+	Eigen::Quaterniond get_orientation() const;
+
+	// Возвращает тензор напряжений Коши в лабораторной системе координат
+	Eigen::Matrix3d get_stress_lab() const;
 };
 

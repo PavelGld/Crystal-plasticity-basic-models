@@ -86,6 +86,8 @@ Grain::Grain(std::string info)
 	//M Wpm;
 	M.resize(num_slyde_sys * 2);
 	Wpm.resize(num_slyde_sys * 2);
+	M0.resize(num_slyde_sys * 2);
+	Wpm0.resize(num_slyde_sys * 2);
 	Ms_v.resize(num_slyde_sys * 2);
 	M_9.resize(num_slyde_sys * 2);
 	Wpm_9.resize(num_slyde_sys * 2);
@@ -125,6 +127,9 @@ Grain::Grain(std::string info)
 		Ms_v[i * 2] = tensorToVoigt(Ms);
 		M_9[i * 2]   = tensorTo9d(M[i * 2]);
 		Wpm_9[i * 2] = tensorTo9d(Wpm[i * 2]);
+		// Сохраняем начальные тензоры в КСК (постоянны на протяжении всего расчёта)
+		M0[i * 2]   = M[i * 2];
+		Wpm0[i * 2] = Wpm[i * 2];
 	
 		for (int j = 0; j < 3; j++)
 			b[j] = -1 * b[j];
@@ -142,6 +147,9 @@ Grain::Grain(std::string info)
 		Ms_v[i * 2 + 1] = tensorToVoigt(Ms2);
 		M_9[i * 2 + 1]   = tensorTo9d(M[i * 2 + 1]);
 		Wpm_9[i * 2 + 1] = tensorTo9d(Wpm[i * 2 + 1]);
+		// Сохраняем начальные тензоры в КСК (постоянны на протяжении всего расчёта)
+		M0[i * 2 + 1]   = M[i * 2 + 1];
+		Wpm0[i * 2 + 1] = Wpm[i * 2 + 1];
 	
 	
 	
@@ -189,8 +197,7 @@ Grain::Grain(std::string info)
 					H(j,i) = A;
 				else
 					H(j, i) = A * q;
-		h0 = h0;
-	}
+		h0 = h0;	}
 	
 	file >> tc0;
 
@@ -219,6 +226,7 @@ Grain::Grain(std::string info)
 
 	Stress.setZero();
 	Orient.setZero();
+	orient_q = Eigen::Quaterniond::Identity();
 
 	last_step.resize(num_slyde_sys * 2);
 	new_step.resize(num_slyde_sys * 2);
@@ -317,14 +325,22 @@ bool Grain::check_elastic(double dt)
 			dT -= buft;
 			Stress_v += P_v * D_v * dT;
 			Buf_v.setZero();
-			integrate();
+			integrate(dT);
 			return false;
 		}
 	}
 
+	// Упругий шаг: sp_shifts и new_step должны быть обнулены,
+	// чтобы integrate() не использовал мусорные значения предыдущего шага
+	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
+	{
+		sp_shifts[i] = 0.0;
+		new_step[i] = 0;
+	}
 	Stress_v = Buf_v;
 	Buf_v.setZero();
-	integrate();
+	integrate(dt);
+	return true;
 }
 
 void Grain::find_SS(double dT)
@@ -364,10 +380,10 @@ void Grain::find_SS(double dT)
 
 	Stress_v = Buf_v;
 
-	integrate();
+	integrate(dT);
 }
 
-void Grain::integrate()
+void Grain::integrate(double dt)
 {
 	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 		for (unsigned j = 0; j < 2 * num_slyde_sys; j++)
@@ -390,13 +406,73 @@ void Grain::integrate()
 			if (Hii != Hii)
 				std::cout << "here";
 		}
+
+	// Обновляем ориентацию зерна в конце каждого подшага
+	if (rot_mode != 0)
+	{
+		Eigen::Matrix3d W_mat = 0.5 * (L - L.transpose());
+		Eigen::Matrix3d Omega;
+
+		if (rot_mode == 1)
+		{
+			// Материальный поворот: решётка следует полному спину
+			Omega = W_mat;
+		}
+		else if (rot_mode == 2)
+		{
+			// Стеснённый поворот Тейлора: вычитаем пластический спин
+			Omega = W_mat - computePlasticSpin();
+		}
+
+		updateOrientation(Omega, dt);
+	}
+}
+
+Eigen::Matrix3d Grain::computePlasticSpin() const
+{
+	Eigen::Matrix3d Wp_mat = Eigen::Matrix3d::Zero();
+	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
+		if (new_step[i])
+			Wp_mat += +sp_shifts[i] * Wpm0[i];
+
+	return Wp_mat;
+}
+
+void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
+{
+	// Вектор угловой скорости из антисимметричного тензора Omega:
+	// omega_k = -eps_ijk * Omega_ij / 2  =>  omega = {Omega32-Omega23, Omega13-Omega31, Omega21-Omega12} / 2
+	Eigen::Vector3d omega(
+		Omega(2, 1) - Omega(1, 2),
+		Omega(0, 2) - Omega(2, 0),
+		Omega(1, 0) - Omega(0, 1)
+	);
+	omega *= 0.5;
+
+	double angle = omega.norm() * dt;
+	if (angle > 1e-14)
+	{
+		Eigen::Quaterniond dq(Eigen::AngleAxisd(angle, omega / omega.norm()));
+		orient_q = (dq * orient_q).normalized();
+	}
 }
 
 void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 {
 	clear();
 
-	L = Lnew;
+	// Переводим L из ЛСК в подвижную КСК зерна: L_local = R^T * L_lab * R
+	// При rot_mode==0 (без ротации) это тождественное преобразование
+	if (rot_mode != 0)
+	{
+		Eigen::Matrix3d R = orient_q.toRotationMatrix();
+		L = R.transpose() * Lnew * R;
+	}
+	else
+	{
+		L = Lnew;
+	}
+
 	L_9 = tensorTo9d(L);
 	Eigen::Matrix3d D = 0.5 * (L + L.transpose());
 	D_v = tensorToVoigt(D);
@@ -408,7 +484,7 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 
 	while (dt > Sum_time)
 	{
-		if (check_elastic(dT + Sum_time))
+		if (check_elastic(dT))
 			Sum_time += dT;
 		else
 		{
@@ -429,4 +505,17 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 Eigen::Matrix<double, 6, 1> Grain::get_stress()
 {
 	return Stress_v;
+}
+
+Eigen::Quaterniond Grain::get_orientation() const
+{
+	return orient_q;
+}
+
+Eigen::Matrix3d Grain::get_stress_lab() const
+{
+	// Напряжения хранятся в КСК зерна. Перевод в ЛСК: S_lab = R * S_ksk * R^T
+	Eigen::Matrix3d R = orient_q.toRotationMatrix();
+	Eigen::Matrix3d S = voigtToTensor(Stress_v);
+	return R * S * R.transpose();
 }
