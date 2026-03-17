@@ -60,6 +60,18 @@ class Grain
 
 	// Ориентация зерна: кватернион, задающий поворот КСК → ЛСК
 	Eigen::Quaterniond orient_q;
+	// Кэшированная матрица поворота (обновляется при изменении orient_q)
+	mutable Eigen::Matrix3d R_buf;
+	// Буфер для вектора угловой скорости
+	mutable Eigen::Vector3d omega_buf;
+	// Буфер для временного кватерниона при обновлении ориентации
+	mutable Eigen::Quaterniond dq_buf;
+	// Буферы для промежуточных вычислений в integrate()
+	mutable Eigen::Matrix3d W_mat_buf;
+	mutable Eigen::Matrix3d Omega_buf;
+	mutable Eigen::Matrix3d Wp_mat_buf;
+	// Буфер для тензора напряжений при переводе в ЛСК
+	mutable Eigen::Matrix3d S_buf;
 
 	std::vector<bool> last_step;
 	std::vector<bool> new_step;
@@ -90,7 +102,8 @@ class Grain
 	void integrate(double dt);
 
 	// Вычисляет пластический спин Wp = sum_alpha (gamma_dot_alpha * Wpm[alpha])
-	Eigen::Matrix3d computePlasticSpin() const;
+	// Результат сохраняется в Wp_mat_buf
+	void computePlasticSpin();
 
 	// Обновляет кватернион ориентации по спину Omega за время dt
 	void updateOrientation(const Eigen::Matrix3d& Omega, double dt);

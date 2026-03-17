@@ -54,6 +54,22 @@ static Eigen::Matrix3d voigtToTensor(const Eigen::Matrix<double, 6, 1>& v) {
 	return A;
 }
 
+// Обратное преобразование Vector6d → симметричный 3x3 (in-place, без аллокаций)
+static void voigtToTensorInPlace(const Eigen::Matrix<double, 6, 1>& v, Eigen::Matrix3d& A) {
+	A.setZero();
+	for (int k = 0; k < 6; ++k) {
+		auto ij = voigtToTensorIndex(k);
+		int i = ij.first;
+		int j = ij.second;
+		if (i == j) {
+			A(i, j) = v(k);
+		} else {
+			A(i, j) += 0.5 * v(k);
+			A(j, i) += 0.5 * v(k);
+		}
+	}
+}
+
 // Преобразование 3x3 → Vector9d (строчно-мажорная развёртка)
 static Eigen::Matrix<double, 9, 1> tensorTo9d(const Eigen::Matrix3d& A) {
 	Eigen::Matrix<double, 9, 1> v;
@@ -227,6 +243,13 @@ Grain::Grain(std::string info)
 	Stress.setZero();
 	Orient.setZero();
 	orient_q = Eigen::Quaterniond::Identity();
+	R_buf.setIdentity();
+	omega_buf.setZero();
+	dq_buf = Eigen::Quaterniond::Identity();
+	W_mat_buf.setZero();
+	Omega_buf.setZero();
+	Wp_mat_buf.setZero();
+	S_buf.setZero();
 
 	last_step.resize(num_slyde_sys * 2);
 	new_step.resize(num_slyde_sys * 2);
@@ -410,50 +433,44 @@ void Grain::integrate(double dt)
 	// Обновляем ориентацию зерна в конце каждого подшага
 	if (rot_mode != 0)
 	{
-		Eigen::Matrix3d W_mat = 0.5 * (L - L.transpose());
-		Eigen::Matrix3d Omega;
+		W_mat_buf = 0.5 * (L - L.transpose());
 
 		if (rot_mode == 1)
 		{
-			// Материальный поворот: решётка следует полному спину
-			Omega = W_mat;
+			Omega_buf = W_mat_buf;
 		}
 		else if (rot_mode == 2)
 		{
-			// Стеснённый поворот Тейлора: вычитаем пластический спин
-			Omega = W_mat - computePlasticSpin();
+			computePlasticSpin();
+			Omega_buf.noalias() = W_mat_buf - Wp_mat_buf;
 		}
 
-		updateOrientation(Omega, dt);
+		updateOrientation(Omega_buf, dt);
 	}
 }
 
-Eigen::Matrix3d Grain::computePlasticSpin() const
+void Grain::computePlasticSpin()
 {
-	Eigen::Matrix3d Wp_mat = Eigen::Matrix3d::Zero();
+	Wp_mat_buf.setZero();
 	for (unsigned i = 0; i < 2 * num_slyde_sys; i++)
 		if (new_step[i])
-			Wp_mat += +sp_shifts[i] * Wpm0[i];
-
-	return Wp_mat;
+			Wp_mat_buf.noalias() += sp_shifts[i] * Wpm0[i];
 }
 
 void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
 {
-	// Вектор угловой скорости из антисимметричного тензора Omega:
-	// omega_k = -eps_ijk * Omega_ij / 2  =>  omega = {Omega32-Omega23, Omega13-Omega31, Omega21-Omega12} / 2
-	Eigen::Vector3d omega(
-		Omega(2, 1) - Omega(1, 2),
-		Omega(0, 2) - Omega(2, 0),
-		Omega(1, 0) - Omega(0, 1)
-	);
-	omega *= 0.5;
+	omega_buf(0) = Omega(2, 1) - Omega(1, 2);
+	omega_buf(1) = Omega(0, 2) - Omega(2, 0);
+	omega_buf(2) = Omega(1, 0) - Omega(0, 1);
+	omega_buf *= 0.5;
 
-	double angle = omega.norm() * dt;
+	double angle = omega_buf.norm() * dt;
 	if (angle > 1e-14)
 	{
-		Eigen::Quaterniond dq(Eigen::AngleAxisd(angle, omega / omega.norm()));
-		orient_q = (dq * orient_q).normalized();
+		dq_buf = Eigen::AngleAxisd(angle, omega_buf / omega_buf.norm());
+		orient_q = dq_buf * orient_q;
+		orient_q.normalize();
+		R_buf = orient_q.toRotationMatrix();
 	}
 }
 
@@ -461,12 +478,9 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 {
 	clear();
 
-	// Переводим L из ЛСК в подвижную КСК зерна: L_local = R^T * L_lab * R
-	// При rot_mode==0 (без ротации) это тождественное преобразование
 	if (rot_mode != 0)
 	{
-		Eigen::Matrix3d R = orient_q.toRotationMatrix();
-		L = R.transpose() * Lnew * R;
+		L.noalias() = R_buf.transpose() * Lnew * R_buf;
 	}
 	else
 	{
@@ -474,8 +488,8 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 	}
 
 	L_9 = tensorTo9d(L);
-	Eigen::Matrix3d D = 0.5 * (L + L.transpose());
-	D_v = tensorToVoigt(D);
+	Buf = 0.5 * (L + L.transpose());
+	D_v = tensorToVoigt(Buf);
 
 	dT = 0;
 	Sum_time = 0;
@@ -514,8 +528,6 @@ Eigen::Quaterniond Grain::get_orientation() const
 
 Eigen::Matrix3d Grain::get_stress_lab() const
 {
-	// Напряжения хранятся в КСК зерна. Перевод в ЛСК: S_lab = R * S_ksk * R^T
-	Eigen::Matrix3d R = orient_q.toRotationMatrix();
-	Eigen::Matrix3d S = voigtToTensor(Stress_v);
-	return R * S * R.transpose();
+	voigtToTensorInPlace(Stress_v, S_buf);
+	return R_buf * S_buf * R_buf.transpose();
 }

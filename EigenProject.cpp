@@ -13,7 +13,7 @@ int main()
 	double de = 0.001;
 	Eigen::Matrix3d L;
 	L(0, 0) = de;
-	L(0, 1) = de;
+	L(0, 1) = 0;
 	L(0, 2) = 0;
 	
 	L(1, 0) = 0;
@@ -27,7 +27,7 @@ int main()
 	Eigen::VectorXd Stress;
 	
 	double dt = 1e-2;
-	for (unsigned i = 0; i < 5000; i++)
+	for (unsigned i = 0; i < 25000; i++)
 	{
 		if (i == 20)
 			std::cout << "here" << '\n';
