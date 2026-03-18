@@ -117,6 +117,9 @@ public:
 	// Возвращает текущий кватернион ориентации (КСК → ЛСК)
 	Eigen::Quaterniond get_orientation() const;
 
+	// Устанавливает ориентацию зерна (КСК → ЛСК)
+	void set_orientation(const Eigen::Quaterniond& q);
+
 	// Возвращает тензор напряжений Коши в лабораторной системе координат
 	Eigen::Matrix3d get_stress_lab() const;
 };

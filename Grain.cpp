@@ -213,7 +213,8 @@ Grain::Grain(std::string info)
 					H(j,i) = A;
 				else
 					H(j, i) = A * q;
-		h0 = h0;	}
+		h0 = h0;	
+	}
 	
 	file >> tc0;
 
@@ -468,7 +469,7 @@ void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
 	if (angle > 1e-14)
 	{
 		dq_buf = Eigen::AngleAxisd(angle, omega_buf / omega_buf.norm());
-		orient_q = dq_buf * orient_q;
+		orient_q = orient_q * dq_buf;
 		orient_q.normalize();
 		R_buf = orient_q.toRotationMatrix();
 	}
@@ -524,6 +525,12 @@ Eigen::Matrix<double, 6, 1> Grain::get_stress()
 Eigen::Quaterniond Grain::get_orientation() const
 {
 	return orient_q;
+}
+
+void Grain::set_orientation(const Eigen::Quaterniond& q)
+{
+	orient_q = q.normalized();
+	R_buf = orient_q.toRotationMatrix();
 }
 
 Eigen::Matrix3d Grain::get_stress_lab() const

@@ -1,41 +1,186 @@
-﻿#include <iostream>
+#include <iostream>
 #include <Eigen/Dense>
+#include <Eigen/Geometry>
 #include <string>
+#include <cmath>
 #include "Grain.h"
 
-using namespace Eigen;
+#define M_PI 3.14159265358979323846
+
+void test_uniaxial_stretch_no_rotation()
+{
+	std::cout << "=== Test 1: Uniaxial stretch (no rotation expected) ===" << std::endl;
+
+	Grain gr("grain_test.txt");
+
+	// Начальная ориентация - поворот на 30 градусов вокруг Z
+	Eigen::AngleAxisd aa_init(M_PI / 6.0, Eigen::Vector3d::UnitZ());
+	Eigen::Quaterniond q_init(aa_init);
+	gr.set_orientation(q_init);
+
+	Eigen::Quaterniond q_before = gr.get_orientation();
+	Eigen::Matrix3d R_before = q_before.toRotationMatrix();
+
+	// L = diag(eps, -eps/2, -eps/2) - симметричный, W = 0
+	double eps = 0.001;
+	Eigen::Matrix3d L;
+	L.setZero();
+	L(0, 0) = eps;
+	L(1, 1) = -0.5 * eps;
+	L(2, 2) = -0.5 * eps;
+
+	double dt = 1e-3;
+	int N = 100;
+	for (int i = 0; i < N; i++)
+	{
+		gr.Simulate_Step(dt, L);
+	}
+
+	Eigen::Quaterniond q_after = gr.get_orientation();
+	Eigen::Matrix3d R_after = q_after.toRotationMatrix();
+
+	// Проверяем что ориентация не изменилась
+	Eigen::Matrix3d R_diff = R_after - R_before;
+	double diff_norm = R_diff.norm();
+
+	std::cout << "R_before:\n" << R_before << std::endl;
+	std::cout << "R_after:\n" << R_after << std::endl;
+	std::cout << "Difference norm: " << diff_norm << std::endl;
+
+	if (diff_norm < 1e-10)
+	{
+		std::cout << "TEST 1 PASSED: Orientation unchanged (as expected)" << std::endl;
+	}
+	else
+	{
+		std::cout << "TEST 1 FAILED: Orientation changed unexpectedly!" << std::endl;
+	}
+	std::cout << std::endl;
+}
+
+void test_simple_shear_rotation()
+{
+	std::cout << "=== Test 2: Simple shear (rotation expected) ===" << std::endl;
+
+	Grain gr("grain_test.txt");
+
+	Eigen::Quaterniond q_before = gr.get_orientation();
+	Eigen::Matrix3d R_before = q_before.toRotationMatrix();
+
+	// L = [[0, eps, 0], [0, 0, 0], [0, 0, 0]] - простой сдвиг
+	// W = 0.5*(L - L^T) = [[0, eps/2, 0], [-eps/2, 0, 0], [0, 0, 0]]
+	// omega = (0, 0, -eps/2) - вращение вокруг Z (отрицательное = по часовой)
+	// theta = |omega| * t = eps * t / 2
+	double eps = 0.001;
+	Eigen::Matrix3d L;
+	L.setZero();
+	L(0, 1) = eps;
+
+	double dt = 1e-3;
+	int N = 100;
+	double total_time = N * dt;
+	double expected_angle = eps * total_time / 2.0;
+
+	for (int i = 0; i < N; i++)
+	{
+		gr.Simulate_Step(dt, L);
+	}
+
+	Eigen::Quaterniond q_after = gr.get_orientation();
+	Eigen::Matrix3d R_after = q_after.toRotationMatrix();
+
+	// Извлекаем угол поворота из кватерниона
+	// q = [w, x, y, z] = [cos(theta/2), n*sin(theta/2)]
+	// Для вращения вокруг Z: q = [cos(theta/2), 0, 0, ±sin(theta/2)]
+	double actual_angle = 2.0 * std::acos(std::abs(q_after.w()));
+
+	// Проверяем ось вращения - должна быть Z (или -Z)
+	Eigen::Vector3d vec = q_after.vec();
+	double vec_norm = vec.norm();
+	Eigen::Vector3d axis = vec_norm > 1e-10 ? vec / vec_norm : Eigen::Vector3d(0, 0, 1);
+
+	std::cout << "R_before:\n" << R_before << std::endl;
+	std::cout << "R_after:\n" << R_after << std::endl;
+	std::cout << "Expected rotation angle: " << expected_angle << " rad (" 
+	          << expected_angle * 180.0 / M_PI << " deg)" << std::endl;
+	std::cout << "Actual rotation angle: " << actual_angle << " rad ("
+	          << actual_angle * 180.0 / M_PI << " deg)" << std::endl;
+	std::cout << "Rotation axis: " << axis.transpose() << std::endl;
+	std::cout << "Angle difference: " << std::abs(actual_angle - expected_angle) << std::endl;
+
+	double angle_error = std::abs(actual_angle - expected_angle);
+	if (angle_error < 1e-5)
+	{
+		std::cout << "TEST 2 PASSED: Rotation angle matches expected" << std::endl;
+	}
+	else
+	{
+		std::cout << "TEST 2 FAILED: Rotation angle mismatch!" << std::endl;
+	}
+	std::cout << std::endl;
+}
+
+void test_no_rotation_mode()
+{
+	std::cout << "=== Test 3: rot_mode=0 (no rotation) ===" << std::endl;
+
+	// Зерно без ротации
+	Grain gr_no_rot("grain_test_no_rot.txt");
+
+	// Зерно с материальной ротацией
+	Grain gr_rot("grain_test.txt");
+
+	// Начальная ориентация - поворот на 45 градусов вокруг Z
+	Eigen::AngleAxisd aa_init(M_PI / 4.0, Eigen::Vector3d::UnitZ());
+	Eigen::Quaterniond q_init(aa_init);
+	gr_no_rot.set_orientation(q_init);
+	gr_rot.set_orientation(q_init);
+
+	// Простой сдвиг
+	double eps = 0.001;
+	Eigen::Matrix3d L;
+	L.setZero();
+	L(0, 1) = eps;
+
+	double dt = 1e-3;
+	int N = 50;
+	for (int i = 0; i < N; i++)
+	{
+		gr_no_rot.Simulate_Step(dt, L);
+		gr_rot.Simulate_Step(dt, L);
+	}
+
+	Eigen::Matrix3d R_no_rot = gr_no_rot.get_orientation().toRotationMatrix();
+	Eigen::Matrix3d R_rot = gr_rot.get_orientation().toRotationMatrix();
+	Eigen::Matrix3d R_init = q_init.toRotationMatrix();
+
+	std::cout << "Initial R:\n" << R_init << std::endl;
+	std::cout << "R (rot_mode=0) after " << N << " steps:\n" << R_no_rot << std::endl;
+	std::cout << "R (rot_mode=1) after " << N << " steps:\n" << R_rot << std::endl;
+
+	double diff_no_rot = (R_no_rot - R_init).norm();
+	double diff_rot = (R_rot - R_init).norm();
+
+	std::cout << "Difference (no rotation): " << diff_no_rot << std::endl;
+	std::cout << "Difference (with rotation): " << diff_rot << std::endl;
+
+	if (diff_no_rot < 1e-10)
+	{
+		std::cout << "TEST 3 PASSED: rot_mode=0 keeps orientation fixed" << std::endl;
+	}
+	else
+	{
+		std::cout << "TEST 3 FAILED: rot_mode=0 changed orientation!" << std::endl;
+	}
+	std::cout << std::endl;
+}
 
 int main()
 {
-	std::string info  = "grain.txt";
-	Grain gr(info);
-	
-	double de = 0.001;
-	Eigen::Matrix3d L;
-	L(0, 0) = de;
-	L(0, 1) = de;
-	L(0, 2) = 0;
-	
-	L(1, 0) = 0;
-	L(1, 1) = -0.5*de;
-	L(1, 2) = 0;
-	
-	L(2, 0) = 0;
-	L(2, 1) = 0;
-	L(2, 2) = -0.5*de;
-	
-	Eigen::Matrix3d Stress;
-	
-	double dt = 1e-2;
-	for (unsigned i = 0; i < 25000; i++)
-	{
-		gr.Simulate_Step(dt, L);
-		Stress = gr.get_stress_lab();
-		Stress -= Stress.trace() / 3.0 * Eigen::Matrix3d::Identity();
-		double stress_intence = sqrt(3.0 / 2.0*((Stress*Stress.transpose())).trace());
-		std::cout << stress_intence /1e6 << '\n';
-		
-	}
+	test_uniaxial_stretch_no_rotation();
+	test_simple_shear_rotation();
+	test_no_rotation_mode();
 
+	std::cout << "=== All tests completed ===" << std::endl;
 	return 0;
 }
