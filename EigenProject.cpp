@@ -4,6 +4,7 @@
 #include <string>
 #include <cmath>
 #include "Grain.h"
+#include "RVE.h"
 
 #define M_PI 3.14159265358979323846
 
@@ -175,11 +176,47 @@ void test_no_rotation_mode()
 	std::cout << std::endl;
 }
 
+void test_rve_basic()
+{
+	std::cout << "=== Test 4: RVE basic functionality ===" << std::endl;
+
+	RVE rve("rve_test.txt");
+	
+	std::cout << "Number of grains: " << rve.num_grains() << std::endl;
+	
+	double eps = 0.001;
+	Eigen::Matrix3d L;
+	L.setZero();
+	L(0, 0) = eps;
+	L(1, 1) = -0.5 * eps;
+	L(2, 2) = -0.5 * eps;
+
+	double dt = 1e-3;
+	for (int i = 0; i < 1000; i++) {
+		rve.Simulate_Step(dt, L);
+
+		Eigen::Matrix3d stress = rve.get_stress();
+		std::cout << "Average stress:\n" << stress/1e6 << std::endl;
+	}
+
+	Eigen::Matrix3d stress = rve.get_stress();
+	std::cout << "Average stress:\n" << stress << std::endl;
+	std::cout << "Time: " << rve.get_time() << std::endl;
+	
+	if (rve.num_grains() == 10) {
+		std::cout << "TEST 4 PASSED: RVE created 10 grains" << std::endl;
+	} else {
+		std::cout << "TEST 4 FAILED: Wrong number of grains" << std::endl;
+	}
+	std::cout << std::endl;
+}
+
 int main()
 {
 	test_uniaxial_stretch_no_rotation();
 	test_simple_shear_rotation();
 	test_no_rotation_mode();
+	test_rve_basic();
 
 	std::cout << "=== All tests completed ===" << std::endl;
 	return 0;

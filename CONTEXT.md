@@ -4,19 +4,97 @@
 
 C++ реализация модели кристаллической пластичности для одиночного зерна (кристаллита). Проект использует библиотеку Eigen для линейной алгебры. Все вычисления ведутся в нотации Фойгта (6-мерное пространство для симметричных тензоров).
 
-**Текущий статус:** Базовая упруговязкопластическая модель + ротация кристаллической решётки реализованы и протестированы.
+**Текущий статус:** Базовая упруговязкопластическая модель + ротация кристаллической решётки + RVE реализованы и протестированы.
 
 ## Файловая структура
 
 ```
 EigenProject/
-├── Grain.h/cpp           — основной класс (текущая реализация на Eigen)
+├── MaterialParams.h/cpp  — структура неизменяемых материальных параметров
+├── Grain.h/cpp           — класс зерна с shared_ptr<MaterialParams>
+├── RVE.h/cpp             — представительский объём (множество зёрен)
 ├── Crystallite.h/cpp     — предыдущая реализация на кастомном Tensor (эталон, не используется)
 ├── EigenProject.cpp      — main с тестами
 ├── grain.txt             — параметры для основного расчёта
 ├── grain_test.txt        — тестовый файл (rot_mode=1, tc0=1e15 для упругости)
 ├── grain_test_no_rot.txt — тестовый файл (rot_mode=0)
+├── rve_test.txt          — тестовый файл для RVE
 └── README.md
+```
+
+## Структура MaterialParams
+
+`MaterialParams` — неизменяемые материальные параметры, общие для нескольких зёрен одного материала.
+
+```cpp
+struct MaterialParams {
+    // Системы скольжения
+    std::vector<Eigen::Matrix3d> M;      // тензоры ориентации M = b⊗n
+    std::vector<Eigen::Matrix3d> Wpm;    // антисимметричная часть
+    std::vector<Vector6d> Ms_v;          // симметричная часть в Фойгте
+    int num_slyde_sys;
+
+    // Упругость
+    Matrix6d P_v;                        // матрица упругости в Фойгте
+
+    // Параметры пластичности
+    double tc0;                          // начальное критическое напряжение
+    double strain_rate_infl;             // γ̇_0 для закона Хатчинсона
+
+    // Упрочнение
+    unsigned hard_mode;
+    Eigen::MatrixXd H;                   // матрица взаимодействия
+    double A, q, h0, ts, alfa;           // параметры Kocks-Mecking
+};
+```
+
+**Важно:** Используется `shared_ptr` для разделения параметров между зёрнами:
+
+```cpp
+using MaterialParamsPtr = std::shared_ptr<const MaterialParams>;
+```
+
+## Класс RVE
+
+`RVE` (Representative Volume Element) — представительский объём, содержащий множество зёрен.
+
+```cpp
+class RVE {
+    std::vector<MaterialParamsPtr> materials;  // материалы
+    std::vector<Grain> grains;                  // зёрна
+    unsigned rot_mode;                          // режим ротации
+
+    // Усреднённые величины
+    Eigen::Matrix3d stress_av;                  // напряжения
+    Eigen::Matrix3d W_av;                       // спин
+    Eigen::Matrix3d Dp_av;                      // скорость пласт. деформации
+    Eigen::Matrix3d F_av;                       // градиент деформации
+};
+```
+
+### Формат файла конфигурации RVE
+
+```
+num_materials
+material_1.txt
+material_2.txt
+...
+rot_mode
+num_grains
+material_index orientation_qw orientation_qx orientation_qy orientation_qz
+...
+```
+
+### Методы RVE
+
+```cpp
+RVE(const std::string& config_file)           // конструктор из файла
+void Simulate_Step(double dt, Matrix3d L)     // шаг интегрирования
+Matrix3d get_stress() const                   // средние напряжения
+Matrix3d get_spin() const                     // средний спин
+Matrix3d get_plastic_strain_rate() const      // средняя скорость пластики
+size_t num_grains() const                     // число зёрен
+const Grain& get_grain(size_t i) const        // доступ к зерну
 ```
 
 ## Системы координат (КРИТИЧНО!)
@@ -63,6 +141,15 @@ voigtToTensorInPlace(v, A)  // без аллокаций
 ```
 
 ## Ключевые члены класса Grain
+
+### Материальные параметры (shared_ptr)
+```cpp
+MaterialParamsPtr params;  // неизменяемые параметры материала (shared)
+```
+
+Grain теперь использует `shared_ptr<MaterialParams>` для разделения материальных параметров между зёрнами. Это позволяет:
+- Экономить память при моделировании RVE с множеством зёрен одного материала
+- Избегать дублирования неизменяемых данных
 
 ### Ориентация
 ```cpp
