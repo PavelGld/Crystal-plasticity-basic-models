@@ -3,6 +3,10 @@
 #include <fstream>
 #include <unsupported/Eigen/MatrixFunctions>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 RVE::RVE(const std::string& config_file) {
     std::ifstream file(config_file);
     
@@ -45,13 +49,17 @@ void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {
     W_av.setZero();
     Dp_av.setZero();
     
-    for (auto& grain : grains) {
-        grain.Simulate_Step(dt, L);
+    int n = static_cast<int>(grains.size());
+#ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+#endif
+    for (int i = 0; i < n; i++) {
+        grains[i].Simulate_Step(dt, L);
     }
     
-    for (const auto& grain : grains) {
-        double weight = grain.get_volume() / total_volume;
-        stress_av += grain.get_stress_lab() * weight;
+    for (int i = 0; i < n; i++) {
+        double weight = grains[i].get_volume() / total_volume;
+        stress_av += grains[i].get_stress_lab() * weight;
     }
     
     time += dt;
