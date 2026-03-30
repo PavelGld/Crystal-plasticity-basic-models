@@ -1,3 +1,3 @@
 1
 1
-grain_test.txt 10
+grain_test.txt 1000

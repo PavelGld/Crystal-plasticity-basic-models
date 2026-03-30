@@ -318,7 +318,7 @@ void Grain::find_SS(double dT)
 		if (t > tc[i])
 		{
 			new_step[i] = 1;
-			sp_shifts[i] = params->strain_rate_infl *du*pow(fabs(t / tc[i]), 100.0);
+			sp_shifts[i] = params->strain_rate_infl *du*pow(fabs(t / tc[i]), params->n_power);
 		}
 		else
 		{

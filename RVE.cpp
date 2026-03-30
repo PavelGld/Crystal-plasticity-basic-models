@@ -33,6 +33,11 @@ RVE::RVE(const std::string& config_file) {
     A_affine.setIdentity();
     time = 0;
     acc_strain = 0;
+    
+    total_volume = 0;
+    for (const auto& grain : grains) {
+        total_volume += grain.get_volume();
+    }
 }
 
 void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {
@@ -44,9 +49,9 @@ void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {
         grain.Simulate_Step(dt, L);
     }
     
-    double n = static_cast<double>(grains.size());
     for (const auto& grain : grains) {
-        stress_av += grain.get_stress_lab() / n;
+        double weight = grain.get_volume() / total_volume;
+        stress_av += grain.get_stress_lab() * weight;
     }
     
     time += dt;

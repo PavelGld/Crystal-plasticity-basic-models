@@ -86,4 +86,5 @@ MaterialParams::MaterialParams(const std::string& filename) {
 
     file >> tc0;
     file >> strain_rate_infl;
+    file >> n_power;
 }

@@ -68,6 +68,7 @@ class Grain
 	double sum_shifts;
 
 	double acc_def, time, stress_inten;
+	double volume = 1.0;
 
 	void clear();
 	bool check_elastic(double dt);
@@ -92,4 +93,7 @@ public:
 	void set_orientation(const Eigen::Quaterniond& q);
 
 	Eigen::Matrix3d get_stress_lab() const;
+
+	double get_volume() const { return volume; }
+	void set_volume(double v) { volume = v; }
 };

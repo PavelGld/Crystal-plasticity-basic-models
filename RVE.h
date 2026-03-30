@@ -23,6 +23,7 @@ class RVE {
     
     double time;
     double acc_strain;
+    double total_volume;
     Eigen::Matrix3d A_affine;
 
 public:

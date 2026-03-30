@@ -3,6 +3,7 @@
 #include <Eigen/Geometry>
 #include <string>
 #include <cmath>
+#include <fstream>
 #include "Grain.h"
 #include "RVE.h"
 
@@ -192,18 +193,23 @@ void test_rve_basic()
 	L(2, 2) = -0.5 * eps;
 
 	double dt = 1e-3;
-	for (int i = 0; i < 1000; i++) {
+
+	std::ofstream out;          // поток для записи
+	out.open("hello.txt");      // открываем файл для записи
+	for (int i = 0; i < 10000; i++) {
 		rve.Simulate_Step(dt, L);
 
 		Eigen::Matrix3d stress = rve.get_stress();
-		std::cout << "Average stress:\n" << stress/1e6 << std::endl;
+		//std::cout << "Average stress:\n" << stress/1e6 << std::endl;
+		if (i%100==0)
+			out << dt * eps*i*100 << "	" << stress(0,0)/1e6<<"	" << stress(1, 1) / 1e6 << "	" << stress(2, 2) / 1e6 << "\n";
 	}
 
 	Eigen::Matrix3d stress = rve.get_stress();
 	std::cout << "Average stress:\n" << stress << std::endl;
 	std::cout << "Time: " << rve.get_time() << std::endl;
 	
-	if (rve.num_grains() == 10) {
+	if (rve.num_grains() == 1000) {
 		std::cout << "TEST 4 PASSED: RVE created 10 grains" << std::endl;
 	} else {
 		std::cout << "TEST 4 FAILED: Wrong number of grains" << std::endl;

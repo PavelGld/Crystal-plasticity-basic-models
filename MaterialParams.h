@@ -17,6 +17,7 @@ struct MaterialParams {
 
     double tc0;
     double strain_rate_infl;
+    double n_power = 100.0;
 
     unsigned hard_mode;
     Eigen::MatrixXd H;
