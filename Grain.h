@@ -96,4 +96,7 @@ public:
 
 	double get_volume() const { return volume; }
 	void set_volume(double v) { volume = v; }
+
+	Vector6d get_Dp_v() const { return Dp_v; }
+	Matrix6d get_elasticity_lab() const;
 };

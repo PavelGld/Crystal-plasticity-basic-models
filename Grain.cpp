@@ -460,3 +460,37 @@ Eigen::Matrix3d Grain::get_stress_lab() const
 	voigtToTensorInPlace(Stress_v, S_buf);
 	return R_buf * S_buf * R_buf.transpose();
 }
+
+static Eigen::Matrix<double, 6, 6> computeVoigtRotation(const Eigen::Matrix3d& R) {
+	Eigen::Matrix<double, 6, 6> T;
+	T.setZero();
+	
+	for (int p = 0; p < 3; ++p) {
+		for (int q = 0; q < 3; ++q) {
+			int voigt_pq = tensorToVoigtIndex(p, q);
+			for (int i = 0; i < 3; ++i) {
+				for (int j = 0; j < 3; ++j) {
+					int voigt_ij = tensorToVoigtIndex(i, j);
+					double coeff = R(i, p) * R(j, q);
+					
+					if (p == q && i == j) {
+						T(voigt_ij, voigt_pq) += coeff;
+					} else if (p != q && i != j) {
+						T(voigt_ij, voigt_pq) += coeff;
+					} else if (p == q && i != j) {
+						T(voigt_ij, voigt_pq) += coeff * 2.0;
+					} else {
+						T(voigt_ij, voigt_pq) += coeff * 0.5;
+					}
+				}
+			}
+		}
+	}
+	
+	return T;
+}
+
+Grain::Matrix6d Grain::get_elasticity_lab() const {
+	Eigen::Matrix<double, 6, 6> T = computeVoigtRotation(R_buf);
+	return T * params->P_v * T.transpose();
+}
