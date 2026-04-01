@@ -217,12 +217,53 @@ void test_rve_basic()
 	std::cout << std::endl;
 }
 
+void test_soft_loading()
+{
+	std::cout << "=== Test 5: Soft loading (uniaxial tension) ===" << std::endl;
+
+	RVE rve("rve_test.txt");
+	
+	double stress_rate = 1e8;  // Па/с
+	Eigen::Matrix3d dS_dt = Eigen::Matrix3d::Zero();
+	dS_dt(0, 0) = stress_rate;
+	
+	double dt = 1e-3;
+	int n_steps = 100;
+	
+	for (int i = 0; i < n_steps; i++) {
+		rve.Simulate_Step_Soft(dt, dS_dt);
+	}
+	
+	Eigen::Matrix3d stress = rve.get_stress();
+	std::cout << "Final stress:\n" << stress << std::endl;
+	std::cout << "Expected s11: " << stress_rate * n_steps * dt << " Pa" << std::endl;
+	
+	double s11 = std::abs(stress(0, 0));
+	double s22 = std::abs(stress(1, 1));
+	double s33 = std::abs(stress(2, 2));
+	double s12 = std::abs(stress(0, 1));
+	double s13 = std::abs(stress(0, 2));
+	double s23 = std::abs(stress(1, 2));
+	
+	double off_diag_max = std::max({s12, s13, s23, s22, s33});
+	
+	double tol = 0.05;
+	if (off_diag_max < tol * s11) {
+		std::cout << "TEST 5 PASSED: Stress is approximately uniaxial" << std::endl;
+	} else {
+		std::cout << "TEST 5 FAILED: Off-diagonal components too large" << std::endl;
+		std::cout << "  s11 = " << s11 << ", max_off_diag = " << off_diag_max << std::endl;
+	}
+	std::cout << std::endl;
+}
+
 int main()
 {
 	test_uniaxial_stretch_no_rotation();
 	test_simple_shear_rotation();
 	test_no_rotation_mode();
 	test_rve_basic();
+	test_soft_loading();
 
 	std::cout << "=== All tests completed ===" << std::endl;
 	return 0;
