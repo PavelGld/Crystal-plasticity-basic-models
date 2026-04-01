@@ -59,108 +59,104 @@ void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {
     
     for (int i = 0; i < n; i++) {
         double weight = grains[i].get_volume() / total_volume;
-        stress_av += grains[i].get_stress_lab() * weight;
+        temp_3x3_buf.noalias() = grains[i].get_stress_lab();
+        stress_av.noalias() += temp_3x3_buf * weight;
     }
     
     time += dt;
     
-    F_av = (dt * L).exp() * F_av;
+    exp_buf.noalias() = dt * L;
+    F_av.noalias() = exp_buf.exp() * F_av;
 }
 
 void RVE::Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt) {
-    using Vector6d = Eigen::Matrix<double, 6, 1>;
-    using Matrix6d = Eigen::Matrix<double, 6, 6>;
-    
-    auto tensorToVoigt = [](const Eigen::Matrix3d& S) -> Vector6d {
-        Vector6d v;
-        v << S(0,0), S(1,1), S(2,2), S(1,2)+S(2,1), S(0,2)+S(2,0), S(0,1)+S(1,0);
-        return v;
-    };
-    
-    auto voigtToTensor = [](const Vector6d& v) -> Eigen::Matrix3d {
-        Eigen::Matrix3d S;
-        S << v(0), v(5)/2, v(4)/2,
-             v(5)/2, v(1), v(3)/2,
-             v(4)/2, v(3)/2, v(2);
-        return S;
-    };
-    
-    Vector6d dS_dt_v = tensorToVoigt(dS_dt);
-    Vector6d stress_target_v = stress_av_old_v + dS_dt_v * dt;
-    
-    Vector6d Dp_v = Dp_av_old_v;
-    
     int n = static_cast<int>(grains.size());
     
-    for (int iter = 0; iter < max_iter; iter++) {
-        // 1. Вычислить среднюю упругость (в ЛСК, Фойгт)
-        Matrix6d P_av = Matrix6d::Zero();
-        
-#ifdef _OPENMP
-        #pragma omp parallel
-        {
-            Matrix6d P_local = Matrix6d::Zero();
-            #pragma omp for schedule(static)
-            for (int i = 0; i < n; i++) {
-                double w = grains[i].get_volume() / total_volume;
-                P_local += w * grains[i].get_elasticity_lab();
-            }
-            #pragma omp critical
-            P_av += P_local;
-        }
-#else
-        for (int i = 0; i < n; i++) {
-            double w = grains[i].get_volume() / total_volume;
-            P_av += w * grains[i].get_elasticity_lab();
-        }
-#endif
-        
-        Matrix6d P_inv = P_av.inverse();
-        
-        // 2. Вычислить D
-        Vector6d D_v = P_inv * dS_dt_v + Dp_v;
-        
-        // 3. Преобразовать в L (спин с прошлого шага)
-        Eigen::Matrix3d D = voigtToTensor(D_v);
-        Eigen::Matrix3d W = W_av_old;
-        Eigen::Matrix3d L = D + W;
-        
-        // 4. Параллельный расчёт зёрен
-#ifdef _OPENMP
-        #pragma omp parallel for schedule(static)
-#endif
-        for (int i = 0; i < n; i++) {
-            grains[i].Simulate_Step(dt, L);
-        }
-        
-        // 5. Осреднить результаты
-        Vector6d stress_v = Vector6d::Zero();
-        Dp_v = Vector6d::Zero();
-        Eigen::Matrix3d W_sum = Eigen::Matrix3d::Zero();
-        
-        for (int i = 0; i < n; i++) {
-            double w = grains[i].get_volume() / total_volume;
-            stress_v += w * tensorToVoigt(grains[i].get_stress_lab());
-            Dp_v += w * grains[i].get_Dp_v();
-            W_sum += w * 0.5 * (L - L.transpose());
-        }
-        
-        // 6. Проверка сходимости
-        double rel_error = (stress_v - stress_target_v).norm() 
-                         / std::max(stress_target_v.norm(), 1e-10);
-        
-        if (rel_error < tol) {
-            stress_av = voigtToTensor(stress_v);
-            stress_av_old_v = stress_v;
-            Dp_av_old_v = Dp_v;
-            W_av_old = W_sum;
-            W_av = W_sum;
-            Dp_av = voigtToTensor(Dp_v);
-            time += dt;
-            F_av = (dt * L).exp() * F_av;
-            return;
-        }
+    // 1. Вычислить среднюю упругость (в ЛСК, Фойгт)
+    P_av_buf.setZero();
+    
+    for (int i = 0; i < n; i++) {
+        double w = grains[i].get_volume() / total_volume;
+        grains[i].get_elasticity_lab_into(temp_P_buf);
+        P_av_buf.noalias() += w * temp_P_buf;
     }
     
-    std::cout << "Warning: soft loading did not converge in " << max_iter << " iterations" << std::endl;
+    // 2. Вычислить D из формулы: D = P^-1 : dS/dt + Dp
+    dS_dt_v_buf << dS_dt(0,0), dS_dt(1,1), dS_dt(2,2), 
+                   dS_dt(1,2)+dS_dt(2,1), dS_dt(0,2)+dS_dt(2,0), 
+                   dS_dt(0,1)+dS_dt(1,0);
+    
+    // LU-инверсия без аллокаций
+    lu_buf.compute(P_av_buf);
+    D_v_buf.noalias() = lu_buf.solve(dS_dt_v_buf);
+    D_v_buf.noalias() += Dp_av_old_v;
+    
+    // 3. Преобразовать в L (спин с прошлого шага)
+    D_buf << D_v_buf(0), D_v_buf(5)/2, D_v_buf(4)/2,
+             D_v_buf(5)/2, D_v_buf(1), D_v_buf(3)/2,
+             D_v_buf(4)/2, D_v_buf(3)/2, D_v_buf(2);
+    
+    L_buf.noalias() = D_buf + W_av_old;
+    
+    // 4. Параллельный расчёт зёрен
+#ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+#endif
+    for (int i = 0; i < n; i++) {
+        grains[i].Simulate_Step(dt, L_buf);
+    }
+    
+    // 5. Осреднить результаты
+    stress_v_buf.setZero();
+    Dp_v_buf.setZero();
+    W_sum_buf.setZero();
+    
+    for (int i = 0; i < n; i++) {
+        double w = grains[i].get_volume() / total_volume;
+        
+        // tensorToVoigt inline для get_stress_lab()
+        const Eigen::Matrix3d& s = grains[i].get_stress_lab();
+        stress_v_buf(0) += w * s(0,0);
+        stress_v_buf(1) += w * s(1,1);
+        stress_v_buf(2) += w * s(2,2);
+        stress_v_buf(3) += w * (s(1,2) + s(2,1));
+        stress_v_buf(4) += w * (s(0,2) + s(2,0));
+        stress_v_buf(5) += w * (s(0,1) + s(1,0));
+        
+        Dp_v_buf.noalias() += w * grains[i].get_Dp_v();
+        
+        // W_sum += w * 0.5 * (L - L^T)
+        W_sum_buf(0,1) += w * 0.5 * (L_buf(0,1) - L_buf(1,0));
+        W_sum_buf(0,2) += w * 0.5 * (L_buf(0,2) - L_buf(2,0));
+        W_sum_buf(1,2) += w * 0.5 * (L_buf(1,2) - L_buf(2,1));
+        W_sum_buf(1,0) = -W_sum_buf(0,1);
+        W_sum_buf(2,0) = -W_sum_buf(0,2);
+        W_sum_buf(2,1) = -W_sum_buf(1,2);
+    }
+    
+    // 6. Сохранить результаты
+    stress_av(0,0) = stress_v_buf(0);
+    stress_av(1,1) = stress_v_buf(1);
+    stress_av(2,2) = stress_v_buf(2);
+    stress_av(1,2) = stress_av(2,1) = stress_v_buf(3) / 2;
+    stress_av(0,2) = stress_av(2,0) = stress_v_buf(4) / 2;
+    stress_av(0,1) = stress_av(1,0) = stress_v_buf(5) / 2;
+    
+    stress_av_old_v = stress_v_buf;
+    Dp_av_old_v = Dp_v_buf;
+    W_av_old = W_sum_buf;
+    W_av = W_sum_buf;
+    
+    // Dp_av
+    Dp_av(0,0) = Dp_v_buf(0);
+    Dp_av(1,1) = Dp_v_buf(1);
+    Dp_av(2,2) = Dp_v_buf(2);
+    Dp_av(1,2) = Dp_av(2,1) = Dp_v_buf(3) / 2;
+    Dp_av(0,2) = Dp_av(2,0) = Dp_v_buf(4) / 2;
+    Dp_av(0,1) = Dp_av(1,0) = Dp_v_buf(5) / 2;
+    
+    time += dt;
+    
+    exp_buf.noalias() = dt * L_buf;
+    F_av.noalias() = exp_buf.exp() * F_av;
 }

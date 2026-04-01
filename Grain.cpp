@@ -24,53 +24,28 @@ static std::pair<int, int> voigtToTensorIndex(int voigt_idx) {
 	return tensor_index[voigt_idx];
 }
 
-static Eigen::Matrix<double, 6, 1> tensorToVoigt(const Eigen::Matrix3d& A) {
-	Eigen::Matrix<double, 6, 1> v;
-	v.setZero();
-	for (int i = 0; i < 3; ++i)
-		for (int j = 0; j < 3; ++j)
-			v(tensorToVoigtIndex(i, j)) += A(i, j);
-	return v;
-}
-
-static Eigen::Matrix3d voigtToTensor(const Eigen::Matrix<double, 6, 1>& v) {
-	Eigen::Matrix3d A;
-	A.setZero();
-	for (int k = 0; k < 6; ++k) {
-		auto ij = voigtToTensorIndex(k);
-		int i = ij.first;
-		int j = ij.second;
-		if (i == j) {
-			A(i, j) = v(k);
-		} else {
-			A(i, j) += 0.5 * v(k);
-			A(j, i) += 0.5 * v(k);
-		}
-	}
-	return A;
+static void tensorToVoigtInPlace(const Eigen::Matrix3d& A, Eigen::Matrix<double, 6, 1>& v) {
+	v(0) = A(0, 0);
+	v(1) = A(1, 1);
+	v(2) = A(2, 2);
+	v(3) = A(1, 2) + A(2, 1);
+	v(4) = A(0, 2) + A(2, 0);
+	v(5) = A(0, 1) + A(1, 0);
 }
 
 static void voigtToTensorInPlace(const Eigen::Matrix<double, 6, 1>& v, Eigen::Matrix3d& A) {
-	A.setZero();
-	for (int k = 0; k < 6; ++k) {
-		auto ij = voigtToTensorIndex(k);
-		int i = ij.first;
-		int j = ij.second;
-		if (i == j) {
-			A(i, j) = v(k);
-		} else {
-			A(i, j) += 0.5 * v(k);
-			A(j, i) += 0.5 * v(k);
-		}
-	}
+	A(0, 0) = v(0);
+	A(1, 1) = v(1);
+	A(2, 2) = v(2);
+	A(1, 2) = A(2, 1) = v(3) * 0.5;
+	A(0, 2) = A(2, 0) = v(4) * 0.5;
+	A(0, 1) = A(1, 0) = v(5) * 0.5;
 }
 
-static Eigen::Matrix<double, 9, 1> tensorTo9d(const Eigen::Matrix3d& A) {
-	Eigen::Matrix<double, 9, 1> v;
-	for (int i = 0; i < 3; ++i)
-		for (int j = 0; j < 3; ++j)
-			v(3 * i + j) = A(i, j);
-	return v;
+static void tensorTo9dInPlace(const Eigen::Matrix3d& A, Eigen::Matrix<double, 9, 1>& v) {
+	v(0) = A(0, 0); v(1) = A(0, 1); v(2) = A(0, 2);
+	v(3) = A(1, 0); v(4) = A(1, 1); v(5) = A(1, 2);
+	v(6) = A(2, 0); v(7) = A(2, 1); v(8) = A(2, 2);
 }
 
 Grain::Grain(std::string info)
@@ -91,17 +66,17 @@ Grain::Grain(std::string info)
 	Buf.setZero();
 
 	W.setZero();
-	W_9 = tensorTo9d(W);
+	tensorTo9dInPlace(W, W_9);
 	Spin.setZero();
 	Wp.setZero();
 	Z.setZero();
-	Z_9  = tensorTo9d(Z);
+	tensorTo9dInPlace(Z, Z_9);
 	Ze.setZero();
-	Ze_9 = tensorTo9d(Ze);
+	tensorTo9dInPlace(Ze, Ze_9);
 	Zp.setZero();
-	Zp_9 = tensorTo9d(Zp);
+	tensorTo9dInPlace(Zp, Zp_9);
 	L.setZero();
-	L_9  = tensorTo9d(L);
+	tensorTo9dInPlace(L, L_9);
 	Deformation.setZero();
 	F.setIdentity();
 
@@ -154,17 +129,17 @@ Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation, unsigne
 	Buf.setZero();
 
 	W.setZero();
-	W_9 = tensorTo9d(W);
+	tensorTo9dInPlace(W, W_9);
 	Spin.setZero();
 	Wp.setZero();
 	Z.setZero();
-	Z_9  = tensorTo9d(Z);
+	tensorTo9dInPlace(Z, Z_9);
 	Ze.setZero();
-	Ze_9 = tensorTo9d(Ze);
+	tensorTo9dInPlace(Ze, Ze_9);
 	Zp.setZero();
-	Zp_9 = tensorTo9d(Zp);
+	tensorTo9dInPlace(Zp, Zp_9);
 	L.setZero();
-	L_9  = tensorTo9d(L);
+	tensorTo9dInPlace(L, L_9);
 	Deformation.setZero();
 	F.setIdentity();
 
@@ -212,17 +187,17 @@ void Grain::clear()
 	Buf.setZero();
 	Buf_v.setZero();
 	W.setZero();
-	W_9 = tensorTo9d(W);
+	tensorTo9dInPlace(W, W_9);
 	Wp.setZero();
 	Z.setZero();
-	Z_9  = tensorTo9d(Z);
+	tensorTo9dInPlace(Z, Z_9);
 	Ze.setZero();
-	Ze_9 = tensorTo9d(Ze);
+	tensorTo9dInPlace(Ze, Ze_9);
 	Zp.setZero();
-	Zp_9 = tensorTo9d(Zp);
+	tensorTo9dInPlace(Zp, Zp_9);
 	Dp_v.setZero();
 	D_v.setZero();
-	L_9 = tensorTo9d(L);
+	tensorTo9dInPlace(L, L_9);
 	for (int i = 0; i < 2 * params->num_slyde_sys; i++)
 	{
 		last_step[i] = new_step[i];
@@ -397,6 +372,7 @@ void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
 		orient_q = orient_q * dq_buf;
 		orient_q.normalize();
 		R_buf = orient_q.toRotationMatrix();
+		T_voigt_valid = false;  // инвалидация кэша при повороте
 	}
 }
 
@@ -413,9 +389,9 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 		L = Lnew;
 	}
 
-	L_9 = tensorTo9d(L);
-	Buf = 0.5 * (L + L.transpose());
-	D_v = tensorToVoigt(Buf);
+	tensorTo9dInPlace(L, L_9);
+	Buf.noalias() = 0.5 * (L + L.transpose());
+	tensorToVoigtInPlace(Buf, D_v);
 
 	dT = 0;
 	Sum_time = 0;
@@ -434,8 +410,9 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 		dT = dt - Sum_time;
 	}	
 
-	F = (dt*L).exp() * F;
-	Deformation = 0.5 * (F.transpose() * F - Eigen::Matrix3d::Identity());
+	exp_buf.noalias() = dt * L;
+	F.noalias() = exp_buf.exp() * F;
+	Deformation.noalias() = 0.5 * (F.transpose() * F - Eigen::Matrix3d::Identity());
 
 }
 
@@ -453,16 +430,18 @@ void Grain::set_orientation(const Eigen::Quaterniond& q)
 {
 	orient_q = q.normalized();
 	R_buf = orient_q.toRotationMatrix();
+	T_voigt_valid = false;  // инвалидация кэша
 }
 
 Eigen::Matrix3d Grain::get_stress_lab() const
 {
 	voigtToTensorInPlace(Stress_v, S_buf);
-	return R_buf * S_buf * R_buf.transpose();
+	Buf.noalias() = R_buf * S_buf;
+	S_buf.noalias() = Buf * R_buf.transpose();
+	return S_buf;
 }
 
-static Eigen::Matrix<double, 6, 6> computeVoigtRotation(const Eigen::Matrix3d& R) {
-	Eigen::Matrix<double, 6, 6> T;
+void Grain::computeVoigtRotationInPlace(Matrix6d& T) const {
 	T.setZero();
 	
 	for (int p = 0; p < 3; ++p) {
@@ -471,7 +450,7 @@ static Eigen::Matrix<double, 6, 6> computeVoigtRotation(const Eigen::Matrix3d& R
 			for (int i = 0; i < 3; ++i) {
 				for (int j = 0; j < 3; ++j) {
 					int voigt_ij = tensorToVoigtIndex(i, j);
-					double coeff = R(i, p) * R(j, q);
+					double coeff = R_buf(i, p) * R_buf(j, q);
 					
 					if (p == q && i == j) {
 						T(voigt_ij, voigt_pq) += coeff;
@@ -486,11 +465,23 @@ static Eigen::Matrix<double, 6, 6> computeVoigtRotation(const Eigen::Matrix3d& R
 			}
 		}
 	}
-	
-	return T;
 }
 
-Grain::Matrix6d Grain::get_elasticity_lab() const {
-	Eigen::Matrix<double, 6, 6> T = computeVoigtRotation(R_buf);
-	return T * params->P_v * T.transpose();
+void Grain::get_elasticity_lab_into(Matrix6d& result) const {
+	if (!T_voigt_valid) {
+		computeVoigtRotationInPlace(T_voigt_buf);
+		T_voigt_valid = true;
+	}
+	Buf_P.noalias() = T_voigt_buf * params->P_v;
+	result.noalias() = Buf_P * T_voigt_buf.transpose();
+}
+
+const Grain::Matrix6d& Grain::get_elasticity_lab() const {
+	if (!T_voigt_valid) {
+		computeVoigtRotationInPlace(T_voigt_buf);
+		T_voigt_valid = true;
+	}
+	Buf_P.noalias() = T_voigt_buf * params->P_v;
+	T_voigt_buf.noalias() = Buf_P * T_voigt_buf.transpose();
+	return T_voigt_buf;
 }

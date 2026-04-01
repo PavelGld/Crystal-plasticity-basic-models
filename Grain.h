@@ -18,8 +18,9 @@ class Grain
 
 	Eigen::MatrixXd H;
 
-	Eigen::Matrix3d Buf;
-	Vector6d Buf_v;
+	mutable Eigen::Matrix3d Buf;
+	mutable Vector6d Buf_v;
+	mutable Matrix6d Buf_P;
 
 	Eigen::Matrix3d W;
 	Eigen::Matrix3d Spin;
@@ -97,6 +98,13 @@ public:
 	double get_volume() const { return volume; }
 	void set_volume(double v) { volume = v; }
 
-	Vector6d get_Dp_v() const { return Dp_v; }
-	Matrix6d get_elasticity_lab() const;
+	const Vector6d& get_Dp_v() const { return Dp_v; }
+	void get_elasticity_lab_into(Matrix6d& result) const;
+	const Matrix6d& get_elasticity_lab() const;
+
+private:
+	mutable Matrix6d T_voigt_buf;
+	mutable bool T_voigt_valid = false;
+	mutable Eigen::Matrix3d exp_buf;
+	void computeVoigtRotationInPlace(Matrix6d& T) const;
 };
