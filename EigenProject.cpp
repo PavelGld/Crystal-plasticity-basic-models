@@ -196,7 +196,7 @@ void test_rve_basic()
 
 	std::ofstream out;          // поток для записи
 	out.open("hello.txt");      // открываем файл для записи
-	for (int i = 0; i < 10000; i++) {
+	for (int i = 0; i < 100000; i++) {
 		rve.Simulate_Step(dt, L);
 
 		Eigen::Matrix3d stress = rve.get_stress();
@@ -264,7 +264,7 @@ int main()
 	test_uniaxial_stretch_no_rotation();
 	test_simple_shear_rotation();
 	test_no_rotation_mode();
-	//test_rve_basic();
+	test_rve_basic();
 	test_soft_loading();
 
 	std::cout << "=== All tests completed ===" << std::endl;
