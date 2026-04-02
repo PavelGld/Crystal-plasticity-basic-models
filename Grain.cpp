@@ -207,12 +207,14 @@ void Grain::clear()
 
 bool Grain::check_elastic(double dt)
 {
+	int n = 2 * params->num_slyde_sys;
+	
+	Buf_PD.noalias() = params->P_v * D_v;
+	
+	Buf_v.noalias() = Stress_v + Buf_PD * dt;
 
 	bool TF = true;
-
-	Buf_v = Stress_v + params->P_v * D_v * dt;
-
-	for (int i = 0; i < 2 * params->num_slyde_sys; i++)
+	for (int i = 0; i < n; i++)
 	{
 		double t = Buf_v.dot(params->Ms_v[i]);
 		if (t > tc[i])
@@ -221,15 +223,13 @@ bool Grain::check_elastic(double dt)
 
 	if (!TF)
 	{
-		bool was_in_plastic(false);
-
-		for (int i = 0; i < 2 * params->num_slyde_sys; i++)
+		bool was_in_plastic = false;
+		for (int i = 0; i < n; i++)
 		{
 			double t = Stress_v.dot(params->Ms_v[i]);
 			if (t > tc[i])
 				was_in_plastic = true;
 		}
-
 
 		if (was_in_plastic)
 		{
@@ -238,27 +238,24 @@ bool Grain::check_elastic(double dt)
 		}
 		else
 		{
-			double buft(1e300);
-			for (int i = 0; i < 2 * params->num_slyde_sys; i++)
+			double buft = 1e300;
+			for (int i = 0; i < n; i++)
 			{
-				double ai = (params->P_v*D_v).dot(params->Ms_v[i]);
+				double ai = Buf_PD.dot(params->Ms_v[i]);
 				double t = Stress_v.dot(params->Ms_v[i]);
 				if (ai > 0)
-				{
-					if ((tc[i] - t) / ai < buft)
-						buft = (tc[i] - t) / ai;
-				}
+					buft = std::min(buft, (tc[i] - t) / ai);
 			}
 			Sum_time += buft;
 			dT -= buft;
-			Stress_v += params->P_v * D_v * dT;
+			Stress_v.noalias() += Buf_PD * dT;
 			Buf_v.setZero();
 			integrate(dT);
 			return false;
 		}
 	}
 
-	for (int i = 0; i < 2 * params->num_slyde_sys; i++)
+	for (int i = 0; i < n; i++)
 	{
 		sp_shifts[i] = 0.0;
 		new_step[i] = 0;

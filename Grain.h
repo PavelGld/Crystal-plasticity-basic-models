@@ -21,6 +21,7 @@ class Grain
 
 	mutable Eigen::Matrix3d Buf;
 	mutable Vector6d Buf_v;
+	mutable Vector6d Buf_PD;
 	mutable Matrix6d Buf_P;
 
 	Eigen::Matrix3d W;
