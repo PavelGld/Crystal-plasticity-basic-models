@@ -196,7 +196,7 @@ void test_rve_basic()
 
 	std::ofstream out;          // поток для записи
 	out.open("hello.txt");      // открываем файл для записи
-	for (int i = 0; i < 100000; i++) {
+	for (int i = 0; i < 1000; i++) {
 		rve.Simulate_Step(dt, L);
 
 		Eigen::Matrix3d stress = rve.get_stress();

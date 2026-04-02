@@ -271,7 +271,8 @@ bool Grain::check_elastic(double dt)
 
 void Grain::find_SS(double dT)
 { 
-
+	int n = 2 * params->num_slyde_sys;
+	
 	double trD = D_v(0) + D_v(1) + D_v(2);
 	double mean = trD / 3.0;
 	double d1 = D_v(0) - mean;
@@ -281,26 +282,28 @@ void Grain::find_SS(double dT)
 		+ 0.5 * (D_v(3) * D_v(3) + D_v(4) * D_v(4) + D_v(5) * D_v(5));
 	double du = std::sqrt(2.0 / 3.0 * j2);
 
-	for (int i = 0; i < 2 * params->num_slyde_sys; i++)
+	for (int i = 0; i < n; i++)
 		if (last_step[i])
-			Dp_v += params->Ms_v[i] * sp_shifts[i];
+			Dp_v.noalias() += params->Ms_v[i] * sp_shifts[i];
 
-	Buf_v = Stress_v + params->P_v * (D_v - Dp_v) * dT;
+	Buf_v.noalias() = params->P_v * (D_v - Dp_v) * dT;
+	Buf_v += Stress_v;
+	
+	double rate_factor = params->strain_rate_infl * du;
 
-	for (int i = 0; i < 2 * params->num_slyde_sys; i++)
+	for (int i = 0; i < n; i++)
 	{
 		double t = Buf_v.dot(params->Ms_v[i]);
 		if (t > tc[i])
 		{
 			new_step[i] = 1;
-			sp_shifts[i] = params->strain_rate_infl *du*pow(fabs(t / tc[i]), params->n_power);
+			sp_shifts[i] = rate_factor * std::pow(std::abs(t / tc[i]), params->n_power);
 		}
 		else
 		{
 			new_step[i] = 0;
 			sp_shifts[i] = 0;
 		}
-
 	}
 
 	Stress_v = Buf_v;
@@ -310,27 +313,29 @@ void Grain::find_SS(double dT)
 
 void Grain::integrate(double dt)
 {
-	for (int i = 0; i < 2 * params->num_slyde_sys; i++)
-		for (int j = 0; j < 2 * params->num_slyde_sys; j++)
-			if ((new_step[j]) &&(tc[i]<params->ts))
-				tc[i] += H(i, j) * sp_shifts[j];
+	int n = 2 * params->num_slyde_sys;
+	
+	for (int j = 0; j < n; j++)
+	{
+		if (!new_step[j]) continue;
+		double shift_j = sp_shifts[j];
+		for (int i = 0; i < n; i++)
+		{
+			if (tc[i] < params->ts)
+				tc[i] += H(i, j) * shift_j;
+		}
+	}
 
 	if (params->hard_mode == 2)
-		for (int j = 0; j < params->num_slyde_sys * 2; j++)
+	{
+		for (int j = 0; j < n; j++)
 		{
 			double t_j = tc[j];
-			double Hii = params->A * params->h0*pow(fabs(1 - t_j / params->ts), params->alfa);
-
-			for (int i = 0; i < params->num_slyde_sys * 2; i++)
-			{
-				if (i == j)
-					H(i, j) = Hii;
-				else
-					H(i, j) = Hii * params->q;
-			}
-			if (Hii != Hii)
-				std::cout << "here";
+			double Hii = params->A * params->h0 * std::pow(std::abs(1.0 - t_j / params->ts), params->alfa);
+			H.col(j).setConstant(Hii * params->q);
+			H(j, j) = Hii;
 		}
+	}
 
 	if (rot_mode != 0)
 	{

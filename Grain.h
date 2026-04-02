@@ -4,6 +4,7 @@
 #include <unsupported/Eigen/CXX11/Tensor>
 #include <string>
 #include <memory>
+#include <cstdint>
 #include "MaterialParams.h"
 
 class Grain
@@ -52,8 +53,8 @@ class Grain
 	mutable Eigen::Matrix3d Wp_mat_buf;
 	mutable Eigen::Matrix3d S_buf;
 
-	std::vector<bool> last_step;
-	std::vector<bool> new_step;
+	std::vector<uint8_t> last_step;
+	std::vector<uint8_t> new_step;
 
 	long int random_state;
 	long int num_crystall;
