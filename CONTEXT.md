@@ -2,24 +2,29 @@
 
 ## Общее описание проекта
 
-C++ реализация модели кристаллической пластичности для одиночного зерна (кристаллита). Проект использует библиотеку Eigen для линейной алгебры. Все вычисления ведутся в нотации Фойгта (6-мерное пространство для симметричных тензоров).
+C++ реализация модели кристаллической пластичности для одиночного зерна (кристаллита) и представительского объёма (RVE). Проект использует библиотеку Eigen для линейной алгебры. Все вычисления ведутся в нотации Фойгта (6-мерное пространство для симметричных тензоров).
 
-**Текущий статус:** Базовая упруговязкопластическая модель + ротация кристаллической решётки + RVE + мягкое нагружение реализованы и протестированы.
+**Текущий статус:** Базовая упруговязкопластическая модель + ротация кристаллической решётки + RVE + мягкое нагружение + валидация текстур — реализованы и протестированы. Полюсные фигуры для 4 режимов нагружения совпадают с литературными данными.
 
 ## Файловая структура
 
 ```
 EigenProject/
-├── MaterialParams.h/cpp  — структура неизменяемых материальных параметров
-├── Grain.h/cpp           — класс зерна с shared_ptr<MaterialParams>
-├── RVE.h/cpp             — представительский объём (множество зёрен)
-├── Crystallite.h/cpp     — предыдущая реализация на кастомном Tensor (эталон, не используется)
-├── EigenProject.cpp      — main с тестами
-├── grain.txt             — параметры для основного расчёта
-├── grain_test.txt        — тестовый файл (rot_mode=1, tc0=1e15 для упругости)
-├── grain_test_no_rot.txt — тестовый файл (rot_mode=0)
-├── rve_test.txt          — тестовый файл для RVE
-└── README.md
+├── MaterialParams.h/cpp          — структура материальных параметров (shared_ptr)
+├── Grain.h/cpp                   — класс зерна (ориентация, системы скольжения, интеграция)
+├── RVE.h/cpp                     — представительский объём (множество зёрен, осреднение)
+├── EigenProject.cpp              — main() проекта (работа с моделью)
+├── grain.txt                     — параметры материала (FCC, 12 систем {111}<110>)
+├── rve_validation.txt            — конфиг RVE (1000 зёрен)
+│
+├── rotation_validation_test_results/
+│   ├── rotation_validation.cpp   — файл валидации: unit-тесты + генерация текстур
+│   ├── plot_polefigures.m        — скрипт MTEX для построения полюсных фигур
+│   ├── orientations_*.txt        — выходные ориентации (30%, 50%, 100%)
+│   └── PF_*.png                  — полюсные фигуры {111}, {110}, {100}
+│
+├── CONTEXT.md                    — этот файл (техническая документация)
+└── README.md                     — обзор проекта
 ```
 
 ## Структура MaterialParams
@@ -30,45 +35,47 @@ EigenProject/
 struct MaterialParams {
     // Системы скольжения
     std::vector<Eigen::Matrix3d> M;      // тензоры ориентации M = b⊗n
-    std::vector<Eigen::Matrix3d> Wpm;    // антисимметричная часть
+    std::vector<Eigen::Matrix3d> Wpm;    // антисимметричная часть Wpm = 0.5*(b⊗n - n⊗b)
     std::vector<Vector6d> Ms_v;          // симметричная часть в Фойгте
     int num_slyde_sys;
 
     // Упругость
     Matrix6d P_v;                        // матрица упругости в Фойгте
 
+    // Режимы модели
+    unsigned hard_mode;                  // 0=изотроп, 1=степенное, 2=Kocks-Mecking
+    unsigned rot_mode;                   // 0=нет, 1=материальный, 2=Тейлор
+
     // Параметры пластичности
     double tc0;                          // начальное критическое напряжение
     double strain_rate_infl;             // γ̇_0 для закона Хатчинсона
+    double n_power;                      // степень в законе Хатчинсона
 
-    // Упрочнение
-    unsigned hard_mode;
+    // Упрочнение (Kocks-Mecking)
     Eigen::MatrixXd H;                   // матрица взаимодействия
-    double A, q, h0, ts, alfa;           // параметры Kocks-Mecking
+    double A, q, h0, ts, alfa;
 };
 ```
 
-**Важно:** Используется `shared_ptr` для разделения параметров между зёрнами:
-
-```cpp
-using MaterialParamsPtr = std::shared_ptr<const MaterialParams>;
-```
+**Важно:** Используется `shared_ptr<const MaterialParams>` для разделения параметров между зёрнами.
 
 ## Класс RVE
 
-`RVE` (Representative Volume Element) — представительский объём, содержащий множество зёрен.
-
 ```cpp
 class RVE {
-    std::vector<MaterialParamsPtr> materials;  // материалы
-    std::vector<Grain> grains;                  // зёрна
-    unsigned rot_mode;                          // режим ротации
+    std::vector<MaterialParamsPtr> materials;
+    std::vector<Grain> grains;
 
     // Усреднённые величины
-    Eigen::Matrix3d stress_av;                  // напряжения
-    Eigen::Matrix3d W_av;                       // спин
-    Eigen::Matrix3d Dp_av;                      // скорость пласт. деформации
-    Eigen::Matrix3d F_av;                       // градиент деформации
+    Eigen::Matrix3d stress_av;           // средние напряжения
+    Eigen::Matrix3d W_av;                // средний спин
+    Eigen::Matrix3d Dp_av;               // средняя скорость пласт. деформации
+    Eigen::Matrix3d F_av;                // средний градиент деформации
+    double acc_strain;                   // накопленная эквивалентная деформация
+
+    // Методы
+    void Simulate_Step(double dt, Matrix3d L);           // жёсткое нагружение
+    void Simulate_Step_Soft(double dt, Matrix3d dS_dt);  // мягкое нагружение
 };
 ```
 
@@ -76,294 +83,149 @@ class RVE {
 
 ```
 num_materials
-material_1.txt
-material_2.txt
-...
-rot_mode
-num_grains
-material_index orientation_qw orientation_qx orientation_qy orientation_qz
-...
+material_file.txt  num_grains
 ```
 
-### Методы RVE
-
-```cpp
-RVE(const std::string& config_file)           // конструктор из файла
-void Simulate_Step(double dt, Matrix3d L)     // жёсткое нагружение (задан L)
-void Simulate_Step_Soft(double dt, Matrix3d dS_dt)  // мягкое нагружение (задана dS/dt)
-Matrix3d get_stress() const                   // средние напряжения
-Matrix3d get_spin() const                     // средний спин
-Matrix3d get_plastic_strain_rate() const      // средняя скорость пластики
-size_t num_grains() const                     // число зёрен
-const Grain& get_grain(size_t i) const        // доступ к зерну
-```
+Зёрна инициализируются случайными ориентациями.
 
 ### Мягкое нагружение (Simulate_Step_Soft)
 
-Итеративный алгоритм для случая, когда задана скорость изменения макронапряжений:
+Итеративный алгоритм: задана скорость изменения напряжений `dS_dt`, вычисляется `D` через среднюю упругость RVE.
 
-```
-Вход: dS_dt (скорость изменения напряжений), dt
-Выход: D (тензор скорости деформации)
-
-Алгоритм:
-1. σ_target = σ_old + dS_dt * dt
-2. Инициализация: Dp = Dp_old
-3. Цикл итераций (макс 20):
-   a. Вычислить среднюю упругость P_av по всем зёрнам (в ЛСК)
-   b. D = P_av^-1 : dS_dt + Dp
-   c. L = D + W_old (спин с прошлого шага)
-   d. Запустить Simulate_Step для всех зёрен (OpenMP)
-   e. Осреднить σ_computed и Dp_new
-   f. Если ||σ_computed - σ_target|| / ||σ_target|| < 1e-4 → converged
-4. Обновить сохранённые значения для следующего шага
-```
-
-## Системы координат (КРИТИЧНО!)
+## Системы координат
 
 ### Конвенция
-- **ЛСК** — лабораторная система координат (неподвижная, инерциальная)
-- **КСК** — кристаллическая система координат (подвижная, связана с решёткой)
+- **ЛСК** — лабораторная система (неподвижная)
+- **КСК** — кристаллическая система (подвижная, связана с решёткой)
 
 ### Кватернион orient_q
-- `orient_q` описывает поворот **КСК → ЛСК**
-- Матрица поворота: `R_buf = orient_q.toRotationMatrix()`
-- Преобразование тензора из КСК в ЛСК: `T_ЛСК = R * T_КСК * R^T`
-- Преобразование тензора из ЛСК в КСК: `T_КСК = R^T * T_ЛСК * R`
+- Описывает поворот **КСК → ЛСК**
+- Обновление: `orient_q = orient_q * dq` (умножение справа, omega в КСК)
 
-### Порядок умножения кватернионов (ВАЖНО!)
-
-Угловая скорость `omega` вычисляется в **КСК** (из `L`, который уже в КСК).
-
-Для обновления кватерниона когда omega в телесной системе:
-```cpp
-orient_q = orient_q * dq_buf;  // умножение СПРАВА!
-```
-
-НЕ `dq_buf * orient_q` — это было бы для omega в инерциальной системе.
+### Преобразования тензоров
+- КСК → ЛСК: `T_lab = R * T_crystal * R^T`
+- ЛСК → КСК: `T_crystal = R^T * T_lab * R`
 
 ## Нотация Фойгта
 
-### Индексы
 ```
 Voigt:    0    1    2    3      4      5
 Tensor:  00   11   22   23     13     12
                         32     31     21
 ```
 
-### Инженерная нотация
-- Диагональные: `D_v(0) = D_11`, `D_v(1) = D_22`, `D_v(2) = D_33`
-- Сдвиговые: `D_v(3) = 2*D_23`, `D_v(4) = 2*D_13`, `D_v(5) = 2*D_12`
-
-### Преобразования (в Grain.cpp)
-```cpp
-tensorToVoigt(A)      // 3x3 → 6x1, сдвиговые = сумма пар
-voigtToTensor(v)      // 6x1 → 3x3 симметричный
-voigtToTensorInPlace(v, A)  // без аллокаций
-```
-
-## Ключевые члены класса Grain
-
-### Материальные параметры (shared_ptr)
-```cpp
-MaterialParamsPtr params;  // неизменяемые параметры материала (shared)
-```
-
-Grain теперь использует `shared_ptr<MaterialParams>` для разделения материальных параметров между зёрнами. Это позволяет:
-- Экономить память при моделировании RVE с множеством зёрен одного материала
-- Избегать дублирования неизменяемых данных
-
-### Ориентация
-```cpp
-Eigen::Quaterniond orient_q;   // кватернион КСК→ЛСК
-mutable Eigen::Matrix3d R_buf; // кэшированная матрица поворота
-```
-
-### Системы скольжения
-```cpp
-std::vector<Eigen::Matrix3d> M;      // тензоры ориентации M = b⊗n
-std::vector<Eigen::Matrix3d> Wpm;    // антисимметричная часть = 0.5*(M - M^T)
-std::vector<Eigen::Matrix3d> M0;     // начальные M (постоянны, для ротации)
-std::vector<Eigen::Matrix3d> Wpm0;   // начальные Wpm (постоянны)
-std::vector<Vector6d> Ms_v;          // симметричная часть в Фойгте
-std::vector<double> tc;              // критические напряжения
-std::vector<double> sp_shifts;       // скорости сдвига γ̇
-```
-
-### Упругость
-```cpp
-Eigen::Tensor<double, 4> P;  // тензор 4-го ранга (3,3,3,3)
-Matrix6d P_v;                // матрица упругости в Фойгте
-```
-
-### Состояние
-```cpp
-Eigen::Matrix3d L;      // градиент скорости (в КСК!)
-Vector6d Stress_v;      // напряжения Коши (в КСК!)
-Eigen::Matrix3d F;      // градиент деформации
-```
-
-### Режимы
-```cpp
-unsigned rot_mode;   // 0=нет, 1=материальный, 2=Тейлор
-unsigned hard_mode;  // 0=изотропное, 1=степенное, 2=нелинейное Kocks-Mecking
-```
+Сдвиговые: `v(3) = A_23+A_32`, `v(4) = A_13+A_31`, `v(5) = A_12+A_21`
 
 ## Алгоритм Simulate_Step
 
 ```
-1. clear() — перенос last_step = new_step
-2. Перевод L из ЛСК в КСК (если rot_mode ≠ 0)
+1. clear() — last_step = new_step
+2. L → КСК (если rot_mode ≠ 0): L_crystal = R^T * L_lab * R
 3. D = 0.5*(L + L^T), D_v = tensorToVoigt(D)
 4. Цикл подшагов:
-   a. check_elastic(dt) — проверка и упругий шаг
-   b. find_SS(dt) — пластический шаг
-   c. integrate(dt) — обновление tc и ориентации
-5. Обновление F = exp(dt*L) * F
+   a. check_elastic(dt) — упругая проверка (Решение по условию ТРЕШ)
+   b. find_SS(dt) — пластический шаг (поиск γ̇)
+   c. integrate(dt) — упрочнение + ротация
+5. F = exp(dt*L) * F
 ```
 
 ## Ротация решётки
 
 ### Материальный поворот (rot_mode=1)
-```cpp
-W_mat = 0.5 * (L - L^T)
-Omega = W_mat
+```
+Ω = W = 0.5 * (L - L^T)
 ```
 
 ### Стеснённый поворот Тейлора (rot_mode=2)
-```cpp
-W_mat = 0.5 * (L - L^T)
-Wp = Σ γ̇_i * Wpm0[i]   // пластический спин
-Omega = W_mat - Wp
+```
+W = 0.5 * (L - L^T)
+Wp = Σ γ̇^α · Wpm^α       // пластический спин
+Ω = W - Wp
 ```
 
-### Обновление кватерниона (в updateOrientation)
-```cpp
-omega = 0.5 * [Ω32-Ω23, Ω13-Ω31, Ω21-Ω12]
-angle = |omega| * dt
-dq = AngleAxisd(angle, omega/|omega|)
-orient_q = orient_q * dq   // СПРАВА!
-R_buf = orient_q.toRotationMatrix()
+### Обновление кватерниона
+```
+omega = 0.5 * [Ω_32-Ω_23, Ω_13-Ω_31, Ω_21-Ω_12]
+dq = AngleAxisd(|omega|*dt, omega/|omega|)
+orient_q = orient_q * dq   // СПРАВА (omega в КСК)
 ```
 
 ## Исправленные баги
 
-### 1. check_elastic не возвращал значение
-**Было:** нет return в конце упругой ветки → UB
-**Стало:** `return true` в конце
+### Критические (влияющие на результат)
+1. **Wpm: перепутаны индексы** — `Wpm = 0.5*(b⊗n - n⊗b)` имел swapped indices, из-за чего `Ω = W - Wp` вычислялось как `W + Wp`. **Исправлено.**
+2. **Порядок кватернионов** — было `dq * orient_q` (слева), стало `orient_q * dq` (справа).
+3. **sp_shifts не занулялись** при упругом шаге.
+4. **check_elastic не возвращал значение** — UB.
 
-### 2. sp_shifts не занулялись при упругом шаге
-**Проблема:** При упругом шаге `sp_shifts` и `new_step` содержали значения предыдущего шага, `integrate()` использовал мусор
-**Решение:** Явное зануление в упругой ветке `check_elastic`
+### Не критические
+5. Неверный аргумент `check_elastic(dT + Sum_time)` → `check_elastic(dT)`.
+6. `rot_mode` перенесён в `MaterialParams` (единый источник из файла материала).
+7. Const-корректность: `mutable` для буферов в const-методах.
 
-### 3. Неверный аргумент check_elastic
-**Было:** `check_elastic(dT + Sum_time)`
-**Стало:** `check_elastic(dT)`
+## Валидация текстур
 
-### 4. Порядок умножения кватернионов
-**Было:** `orient_q = dq_buf * orient_q` (слева)
-**Стало:** `orient_q = orient_q * dq_buf` (справа)
-**Причина:** omega в КСК, а не в ЛСК
+4 режима нагружения проверяются через `rotation_validation.cpp`:
 
-### 5. const-корректность буферов
-**Проблема:** `get_stress_lab()` — const метод, но `S_buf` становился const
-**Решение:** `mutable` для всех буферных переменных
+| Нагружение | L | Ожидаемая текстура FCC |
+|---|---|---|
+| Simple Shear | L₁₂ = γ̇ | Компоненты простого сдвига |
+| Uniaxial Tension | diag(-ε̇/2, -ε̇/2, ε̇) | `<111>||ND` |
+| Uniaxial Compression | diag(ε̇/2, ε̇/2, -ε̇) | `<110>||ND` |
+| Plane Strain | diag(0, -ε̇, ε̇) | Brass-type `{110}<112>` |
 
-## Оптимизации памяти
+Результаты: все 4 типа текстур совпали с литературными данными (проверка через MTEX pole figures).
 
-Все промежуточные Eigen-объекты используют предварительно выделенные буферы-члены класса:
-
-```cpp
-mutable Eigen::Matrix3d R_buf;        // матрица поворота
-mutable Eigen::Vector3d omega_buf;    // вектор угл. скорости
-mutable Eigen::Quaterniond dq_buf;    // временный кватернион
-mutable Eigen::Matrix3d W_mat_buf;    // спин W
-mutable Eigen::Matrix3d Omega_buf;    // спин решётки
-mutable Eigen::Matrix3d Wp_mat_buf;   // пластический спин
-mutable Eigen::Matrix3d S_buf;        // тензор напряжений
-```
-
-Использовать `.noalias()` для избежания временных объектов:
-```cpp
-L.noalias() = R_buf.transpose() * Lnew * R_buf;
-Wp_mat_buf.noalias() += sp_shifts[i] * Wpm0[i];
-```
-
-## Формат входного файла
+## Формат входного файла материала
 
 ```
 hard_mode rot_mode
 num_slyde_sys
-b1_x b1_y b1_z n1_x n1_y n1_z    (система 1: b=направление сдвига, n=нормаль)
-b2_x b2_y b2_z n2_x n2_y n2_z    (система 2)
+b1_x b1_y b1_z n1_x n1_y n1_z
 ...
-c11 c12 c44                       (упругие константы, Па)
-[если hard_mode==2: A q h0 ts alfa]  (параметры Kocks-Mecking)
-tc0                               (начальное критическое напряжение, Па)
-strain_rate_infl                  (γ̇_0 для закона Хатчинсона)
+c11 c12 c44
+[A q h0 ts alfa]   (если hard_mode==2)
+tc0
+strain_rate_infl
+n_power
 ```
 
-**Важно:** Системы скольжения удваиваются автоматически (±b), т.е. для 12 систем будет 24 записи в массивах.
+Системы скольжения удваиваются автоматически (±b).
 
-## Тестирование
+## Оптимизации
 
-### Тест 1: Одноосное растяжение
-- L = diag(ε̇, -ε̇/2, -ε̇/2)
-- Ожидание: W=0, ориентация не меняется
-- Проверка: `(R_after - R_before).norm() < 1e-10`
-
-### Тест 2: Простой сдвиг
-- L = [[0, ε̇, 0], [0, 0, 0], [0, 0, 0]]
-- Ожидание: θ = ε̇·t/2 (вращение вокруг Z)
-- Проверка: `|actual_angle - expected_angle| < 1e-5`
-
-### Тест 3: rot_mode=0 vs rot_mode=1
-- При rot_mode=0 ориентация фиксирована
-- При rot_mode=1 происходит вращение
-
-## Планы развития
-
-1. **Класс Representative Volume Element (RVE)** — представительский объём с множеством зерен
-2. **Генерация ориентаций зерен** — случайные или заданные текстуры
-3. **Упругопластическая модель** — переход от скоростей к конечным деформациям (нужно 9D представление)
-4. **Улучшение интегрирования** — возможно implicit схема или return mapping
-5. **Параллелизация** — OpenMP для RVE
-
-## Известные ограничения
-
-1. **Простая явная схема** — может требовать мелких шагов по времени
-2. **Нет возврата к упругости** — однажды активированная система не деактивируется корректно в текущей логике
-3. **9D представление** — заготовлено, но не используется (для будущей упругопластической модели)
+- Все промежуточные Eigen-объекты — буферы-члены класса (без аллокаций)
+- `.noalias()` везде где возможно
+- OpenMP для параллелизации зёрен в RVE
+- Кэш матрицы поворота Фойгта (T_voigt_valid)
 
 ## Методы класса Grain
 
-### Публичные
 ```cpp
 Grain(std::string info)                    // конструктор из файла
+Grain(MaterialParamsPtr, Quaterniond q)    // конструктор для RVE
 void Simulate_Step(double dt, Matrix3d L)  // шаг интегрирования
+
 Vector6d get_stress()                      // напряжения в КСК
 Matrix3d get_stress_lab()                  // напряжения в ЛСК
 Quaterniond get_orientation()              // кватернион ориентации
 void set_orientation(const Quaterniond& q) // установка ориентации
+Matrix6d get_elasticity_lab()              // упругость в ЛСК (Фойгт)
 ```
 
-### Приватные
+## Методы класса RVE
+
 ```cpp
-void clear()                               // подготовка к новому шагу
-bool check_elastic(double dt)              // проверка упругости
-void find_SS(double dt)                    // поиск скоростей сдвига
-void integrate(double dt)                  // упрочнение + ротация
-void computePlasticSpin()                  // вычисление Wp
-void updateOrientation(Omega, dt)          // обновление кватерниона
+RVE(const std::string& config_file)
+void Simulate_Step(double dt, Matrix3d L)
+void Simulate_Step_Soft(double dt, Matrix3d dS_dt)
+
+Matrix3d get_stress()
+Matrix3d get_spin()
+Matrix3d get_plastic_strain_rate()
+Matrix3d get_deformation_gradient()
+double get_time()
+double get_accumulated_strain()
+size_t num_grains()
+const Grain& get_grain(size_t i)
 ```
-
-## Отладочные советы
-
-1. Если ориентация "уплывает" при rot_mode=0 — проверить что `rot_mode` читается правильно из файла
-2. Если угол поворота в 2 раза отличается — проверить порядок умножения кватернионов
-3. Если напряжения NaN — проверить что `tc[i] < ts` в `integrate()` и нет деления на ноль
-4. Для отладки пластики — уменьшить `tc0` в тестовом файле
-
-## Контакт/Автор
-
-Pavel, OpenSource project. Планируется публикация на GitHub.
