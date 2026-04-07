@@ -1,6 +1,7 @@
 #include "RVE.h"
 #include <iostream>
 #include <fstream>
+#include <cmath>
 #include <unsupported/Eigen/MatrixFunctions>
 
 #ifdef _OPENMP
@@ -9,24 +10,22 @@
 
 RVE::RVE(const std::string& config_file) {
     std::ifstream file(config_file);
-    
-    file >> rot_mode;
-    
+
     int num_materials;
     file >> num_materials;
-    
+
     materials.resize(num_materials);
     for (int m = 0; m < num_materials; m++) {
         std::string mat_file;
         int num_grains_of_material;
         file >> mat_file >> num_grains_of_material;
-        
+
         auto mat = std::make_shared<MaterialParams>(mat_file);
         materials[m] = mat;
-        
+
         for (int g = 0; g < num_grains_of_material; g++) {
             Eigen::Quaterniond random_q = Eigen::Quaterniond::UnitRandom();
-            grains.emplace_back(mat, random_q, rot_mode);
+            grains.emplace_back(mat, random_q);
         }
     }
     
@@ -48,6 +47,7 @@ void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {
     stress_av.setZero();
     W_av.setZero();
     Dp_av.setZero();
+    Dp_v_buf.setZero();
     
     int n = static_cast<int>(grains.size());
 #ifdef _OPENMP
@@ -61,8 +61,25 @@ void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {
         double weight = grains[i].get_volume() / total_volume;
         temp_3x3_buf.noalias() = grains[i].get_stress_lab();
         stress_av.noalias() += temp_3x3_buf * weight;
+
+        // Осредняем Dp для диагностики
+        Dp_v_buf += weight * grains[i].get_Dp_v();
     }
-    
+
+    Dp_av(0,0) = Dp_v_buf(0);
+    Dp_av(1,1) = Dp_v_buf(1);
+    Dp_av(2,2) = Dp_v_buf(2);
+    Dp_av(1,2) = Dp_av(2,1) = Dp_v_buf(3) / 2;
+    Dp_av(0,2) = Dp_av(2,0) = Dp_v_buf(4) / 2;
+    Dp_av(0,1) = Dp_av(1,0) = Dp_v_buf(5) / 2;
+
+    // acc_strain из полной деформации (для контроля цикла)
+    D_buf = 0.5 * (L + L.transpose());
+    double tr_D = D_buf.trace();
+    D_buf.diagonal().array() -= tr_D / 3.0;
+    double D_eq = std::sqrt(2.0 / 3.0 * D_buf.squaredNorm());
+    acc_strain += D_eq * dt;
+
     time += dt;
     
     exp_buf.noalias() = dt * L;

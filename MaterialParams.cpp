@@ -24,8 +24,10 @@ static Eigen::Matrix<double, 6, 1> tensorToVoigt(const Eigen::Matrix3d& A) {
 MaterialParams::MaterialParams(const std::string& filename) {
     std::ifstream file(filename);
     
-    unsigned rot_mode_temp;
-    file >> hard_mode >> rot_mode_temp;
+    unsigned hard_mode_temp, rot_mode_temp;
+    file >> hard_mode_temp >> rot_mode_temp;
+    hard_mode = hard_mode_temp;
+    rot_mode = rot_mode_temp;
     file >> num_slyde_sys;
 
     std::vector<double> b(3), n(3);
@@ -49,7 +51,7 @@ MaterialParams::MaterialParams(const std::string& filename) {
         for (int j = 0; j < 3; j++)
             for (int k = 0; k < 3; k++) {
                 M[i*2](j, k) = b[k] * n[j];
-                Wpm[i*2](j, k) = 0.5 * (b[k]*n[j] - b[j]*n[k]);
+                Wpm[i*2](j, k) = 0.5 * (b[j]*n[k] - b[k]*n[j]);
             }
         Eigen::Matrix3d Ms = 0.5 * (M[i*2] + M[i*2].transpose());
         Ms_v[i*2] = tensorToVoigt(Ms);
@@ -60,7 +62,7 @@ MaterialParams::MaterialParams(const std::string& filename) {
         for (int j = 0; j < 3; j++)
             for (int k = 0; k < 3; k++) {
                 M[i*2+1](j, k) = b[k] * n[j];
-                Wpm[i*2+1](j, k) = 0.5 * (b[k]*n[j] - b[j]*n[k]);
+                Wpm[i*2+1](j, k) = 0.5 * (b[j]*n[k] - b[k]*n[j]);
             }
         Ms = 0.5 * (M[i*2+1] + M[i*2+1].transpose());
         Ms_v[i*2+1] = tensorToVoigt(Ms);

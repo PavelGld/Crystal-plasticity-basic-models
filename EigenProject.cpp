@@ -210,7 +210,7 @@ void test_rve_basic()
 	std::cout << "Time: " << rve.get_time() << std::endl;
 	
 	if (rve.num_grains() == 1000) {
-		std::cout << "TEST 4 PASSED: RVE created 10 grains" << std::endl;
+		std::cout << "TEST 4 PASSED: RVE created 1000 grains" << std::endl;
 	} else {
 		std::cout << "TEST 4 FAILED: Wrong number of grains" << std::endl;
 	}
@@ -232,8 +232,6 @@ void test_soft_loading()
 	
 	for (int i = 0; i < n_steps; i++) {
 		rve.Simulate_Step_Soft(dt, dS_dt);
-		Eigen::Matrix3d stress = rve.get_stress();
-		std::cout << "\n" << stress << std::endl;
 	}
 	
 	Eigen::Matrix3d stress = rve.get_stress();
@@ -259,7 +257,7 @@ void test_soft_loading()
 	std::cout << std::endl;
 }
 
-int main()
+int gmain()
 {
 	test_uniaxial_stretch_no_rotation();
 	test_simple_shear_rotation();

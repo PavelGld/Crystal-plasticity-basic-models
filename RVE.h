@@ -13,8 +13,6 @@ class RVE {
     std::vector<MaterialParamsPtr> materials;
     
     std::vector<Grain> grains;
-    
-    unsigned rot_mode;
 
     Eigen::Matrix3d stress_av;
     Eigen::Matrix3d W_av;
@@ -65,4 +63,5 @@ public:
     
     size_t num_grains() const { return grains.size(); }
     const Grain& get_grain(size_t i) const { return grains[i]; }
+    unsigned get_rot_mode() const { return materials.empty() ? 0 : materials[0]->rot_mode; }
 };

@@ -15,8 +15,6 @@ class Grain
 
 	MaterialParamsPtr params;
 
-	unsigned rot_mode;
-
 	Eigen::MatrixXd H;
 
 	mutable Eigen::Matrix3d Buf;
@@ -86,7 +84,7 @@ class Grain
 
 public:
 	Grain(std::string info);
-	Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation, unsigned rot_mode);
+	Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation);
 	void Simulate_Step(double dt, Eigen::Matrix3d Lnew);
 
 	Grain::Vector6d get_stress();

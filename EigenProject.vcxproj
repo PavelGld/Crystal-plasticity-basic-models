@@ -160,6 +160,7 @@
     <ClCompile Include="EigenProject.cpp" />
     <ClCompile Include="Grain.cpp" />
     <ClCompile Include="MaterialParams.cpp" />
+    <ClCompile Include="rotation_validation.cpp" />
     <ClCompile Include="RVE.cpp" />
   </ItemGroup>
   <ItemGroup>

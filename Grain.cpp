@@ -52,11 +52,6 @@ Grain::Grain(std::string info)
 {
 	params = std::make_shared<MaterialParams>(info);
 
-	std::ifstream file(info);
-	unsigned hard_mode_temp;
-	file >> hard_mode_temp >> rot_mode;
-	file.close();
-
 	H = params->H;
 
 	time = 0;
@@ -119,8 +114,8 @@ Grain::Grain(std::string info)
 	}
 }
 
-Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation, unsigned rot_mode)
-	: params(p), rot_mode(rot_mode), H(p->H)
+Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
+	: params(p), H(p->H)
 {
 	time = 0;
 	acc_def = 0;
@@ -334,15 +329,15 @@ void Grain::integrate(double dt)
 		}
 	}
 
-	if (rot_mode != 0)
+	if (params->rot_mode != 0)
 	{
 		W_mat_buf = 0.5 * (L - L.transpose());
 
-		if (rot_mode == 1)
+		if (params->rot_mode == 1)
 		{
 			Omega_buf = W_mat_buf;
 		}
-		else if (rot_mode == 2)
+		else if (params->rot_mode == 2)
 		{
 			computePlasticSpin();
 			Omega_buf.noalias() = W_mat_buf - Wp_mat_buf;
@@ -382,7 +377,7 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 {
 	clear();
 
-	if (rot_mode != 0)
+	if (params->rot_mode != 0)
 	{
 		L.noalias() = R_buf.transpose() * Lnew * R_buf;
 	}

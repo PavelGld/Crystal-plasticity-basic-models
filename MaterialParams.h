@@ -15,11 +15,14 @@ struct MaterialParams {
 
     Matrix6d P_v;
 
+    // Режимы модели (считываются из файла материала)
+    unsigned hard_mode;
+    unsigned rot_mode;
+
     double tc0;
     double strain_rate_infl;
     double n_power = 100.0;
 
-    unsigned hard_mode;
     Eigen::MatrixXd H;
     double A = 0, q = 0, h0 = 0, ts = 1e30, alfa = 0;
 
