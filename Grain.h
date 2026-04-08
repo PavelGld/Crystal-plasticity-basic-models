@@ -76,6 +76,7 @@ class Grain
 
 	double dT;
 	double Sum_time;
+	double elastic_buft;
 	void find_SS(double dT);
 	void integrate(double dt);
 
@@ -104,6 +105,7 @@ public:
 
 private:
 	mutable Matrix6d T_voigt_buf;
+	mutable Matrix6d P_lab_buf;
 	mutable bool T_voigt_valid = false;
 	mutable Eigen::Matrix3d exp_buf;
 	void computeVoigtRotationInPlace(Matrix6d& T) const;

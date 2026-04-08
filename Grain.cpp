@@ -241,11 +241,11 @@ bool Grain::check_elastic(double dt)
 				if (ai > 0)
 					buft = std::min(buft, (tc[i] - t) / ai);
 			}
-			Sum_time += buft;
-			dT -= buft;
-			Stress_v.noalias() += Buf_PD * dT;
+			// Упругая фаза: интегрируем с полным шагом buft
+			Stress_v.noalias() += Buf_PD * buft;
 			Buf_v.setZero();
-			integrate(dT);
+			elastic_buft = buft;
+			integrate(buft);
 			return false;
 		}
 	}
@@ -392,6 +392,7 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 
 	dT = 0;
 	Sum_time = 0;
+	elastic_buft = 0;
 
 	dT = dt - Sum_time;
 
@@ -401,8 +402,10 @@ void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
 			Sum_time += dT;
 		else
 		{
-			find_SS(dT);
+			double dt_plastic = dT - elastic_buft;
 			Sum_time += dT;
+			if (dt_plastic > 1e-15)
+				find_SS(dt_plastic);
 		}
 		dT = dt - Sum_time;
 	}	
@@ -440,28 +443,21 @@ Eigen::Matrix3d Grain::get_stress_lab() const
 
 void Grain::computeVoigtRotationInPlace(Matrix6d& T) const {
 	T.setZero();
-	
-	for (int p = 0; p < 3; ++p) {
+	for (int p = 0; p < 3; ++p)
 		for (int q = 0; q < 3; ++q) {
-			int voigt_pq = tensorToVoigtIndex(p, q);
-			for (int i = 0; i < 3; ++i) {
+			int P = tensorToVoigtIndex(p, q);
+			bool P_shear = (p != q);
+			for (int i = 0; i < 3; ++i)
 				for (int j = 0; j < 3; ++j) {
-					int voigt_ij = tensorToVoigtIndex(i, j);
-					double coeff = R_buf(i, p) * R_buf(j, q);
-					
-					if (p == q && i == j) {
-						T(voigt_ij, voigt_pq) += coeff;
-					} else if (p != q && i != j) {
-						T(voigt_ij, voigt_pq) += coeff;
-					} else if (p == q && i != j) {
-						T(voigt_ij, voigt_pq) += coeff * 2.0;
-					} else {
-						T(voigt_ij, voigt_pq) += coeff * 0.5;
-					}
+					int I = tensorToVoigtIndex(i, j);
+					bool I_shear = (i != j);
+					double v = R_buf(i, p) * R_buf(j, q);
+					if (!P_shear && !I_shear)       T(I, P) += v;          // норм→норм
+					else if (P_shear && I_shear)    T(I, P) += v;          // сдв→сдв (суммируется дважды)
+					else if (!P_shear && I_shear)   T(I, P) += v * 0.5;          // норм→сдвиг: 1.0 (v(сдвиг)=2·σ, σ'_pp=R_pi·R_pj·σ_ij)
+					else                            T(I, P) += v * 2.0;    // сдвиг→норм: 2.0 (2·σ'_pq=2·R_pi·R_qi·σ_ii)
 				}
-			}
 		}
-	}
 }
 
 void Grain::get_elasticity_lab_into(Matrix6d& result) const {
@@ -479,6 +475,6 @@ const Grain::Matrix6d& Grain::get_elasticity_lab() const {
 		T_voigt_valid = true;
 	}
 	Buf_P.noalias() = T_voigt_buf * params->P_v;
-	T_voigt_buf.noalias() = Buf_P * T_voigt_buf.transpose();
-	return T_voigt_buf;
+	P_lab_buf.noalias() = Buf_P * T_voigt_buf.transpose();
+	return P_lab_buf;
 }
