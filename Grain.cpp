@@ -228,6 +228,7 @@ bool Grain::check_elastic(double dt)
 
 		if (was_in_plastic)
 		{
+			elastic_buft = 0;  // зерно уже в пластике — весь шаг пластический
 			Buf_v.setZero();
 			return TF;
 		}
@@ -314,7 +315,7 @@ void Grain::integrate(double dt)
 		for (int i = 0; i < n; i++)
 		{
 			if (tc[i] < params->ts)
-				tc[i] += H(i, j) * shift_j;
+				tc[i] += H(i, j) * shift_j * dt;
 		}
 	}
 
