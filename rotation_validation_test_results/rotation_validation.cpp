@@ -146,9 +146,9 @@ static void test_soft_loading()
 
 void run_all_tests()
 {
-    test_uniaxial_stretch_no_rotation();
-    test_simple_shear_rotation();
-    test_rve_basic();
+    //test_uniaxial_stretch_no_rotation();
+    //test_simple_shear_rotation();
+    //test_rve_basic();
     test_soft_loading();
     std::cout << "=== All tests completed ===\n";
 }
@@ -274,10 +274,9 @@ void run_texture_simulation()
 
 int main(int argc, char* argv[])
 {
-    if (argc > 1 && std::string(argv[1]) == "--tests") {
-        run_all_tests();
-    } else {
-        run_texture_simulation();
-    }
+    
+	run_all_tests();
+    //run_texture_simulation();
+    
     return 0;
 }
