@@ -373,7 +373,7 @@ void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
 	}
 }
 
-void Grain::Simulate_Step(double dt, Eigen::Matrix3d Lnew)
+void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 {
 	clear();
 

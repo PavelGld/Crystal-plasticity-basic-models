@@ -126,12 +126,10 @@ void RVE::Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt) {
     // 5. Осреднить результаты
     stress_v_buf.setZero();
     Dp_v_buf.setZero();
-    W_sum_buf.setZero();
-    
+
     for (int i = 0; i < n; i++) {
         double w = grains[i].get_volume() / total_volume;
-        
-        // tensorToVoigt inline для get_stress_lab()
+
         const Eigen::Matrix3d& s = grains[i].get_stress_lab();
         stress_v_buf(0) += w * s(0,0);
         stress_v_buf(1) += w * s(1,1);
@@ -139,18 +137,19 @@ void RVE::Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt) {
         stress_v_buf(3) += w * (s(1,2) + s(2,1));
         stress_v_buf(4) += w * (s(0,2) + s(2,0));
         stress_v_buf(5) += w * (s(0,1) + s(1,0));
-        
+
         Dp_v_buf.noalias() += w * grains[i].get_Dp_v();
-        
-        // W_sum += w * 0.5 * (L - L^T)
-        W_sum_buf(0,1) += w * 0.5 * (L_buf(0,1) - L_buf(1,0));
-        W_sum_buf(0,2) += w * 0.5 * (L_buf(0,2) - L_buf(2,0));
-        W_sum_buf(1,2) += w * 0.5 * (L_buf(1,2) - L_buf(2,1));
-        W_sum_buf(1,0) = -W_sum_buf(0,1);
-        W_sum_buf(2,0) = -W_sum_buf(0,2);
-        W_sum_buf(2,1) = -W_sum_buf(1,2);
     }
-    
+
+    // W зависит только от L_buf (одинаков для всех зёрен), Σw = 1
+    W_sum_buf.setZero();
+    W_sum_buf(0,1) = 0.5 * (L_buf(0,1) - L_buf(1,0));
+    W_sum_buf(0,2) = 0.5 * (L_buf(0,2) - L_buf(2,0));
+    W_sum_buf(1,2) = 0.5 * (L_buf(1,2) - L_buf(2,1));
+    W_sum_buf(1,0) = -W_sum_buf(0,1);
+    W_sum_buf(2,0) = -W_sum_buf(0,2);
+    W_sum_buf(2,1) = -W_sum_buf(1,2);
+
     // 6. Сохранить результаты
     stress_av(0,0) = stress_v_buf(0);
     stress_av(1,1) = stress_v_buf(1);
