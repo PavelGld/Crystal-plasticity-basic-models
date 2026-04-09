@@ -9,7 +9,7 @@
 
 #define M_PI 3.14159265358979323846
 
-int gmain()
+int main()
 {
 	const std::string config_file = "rve_validation.txt";
 	const std::string loading_type = "========= UNAXIAL TENSION =========";

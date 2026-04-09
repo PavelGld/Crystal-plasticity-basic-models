@@ -38,10 +38,6 @@ Brass-type текстура `{110}<112>`:
 
 ![Simple Shear {111}](rotation_validation_test_results/PF_simple_shear_100pct.png)
 
-### Сравнение всех режимов
-
-![Comparison 100%](rotation_validation_test_results/PF_compare_100pct.png)
-
 ## Архитектура
 
 ```

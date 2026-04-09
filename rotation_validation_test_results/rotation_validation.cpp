@@ -146,9 +146,9 @@ static void test_soft_loading()
 
 void run_all_tests()
 {
-    //test_uniaxial_stretch_no_rotation();
-    //test_simple_shear_rotation();
-    //test_rve_basic();
+    test_uniaxial_stretch_no_rotation();
+    test_simple_shear_rotation();
+    test_rve_basic();
     test_soft_loading();
     std::cout << "=== All tests completed ===\n";
 }
@@ -256,7 +256,7 @@ void run_texture_simulation()
 
     // 4. Plane Strain: L = diag(0, -eps_dot, eps_dot)
     {
-        double eps_dot = 0.1;
+        double eps_dot = -0.1;
         Eigen::Matrix3d L = Eigen::Matrix3d::Zero();
         L(1, 1) = -eps_dot;
         L(2, 2) = eps_dot;
@@ -268,15 +268,162 @@ void run_texture_simulation()
     std::cout << "Run plot_polefigures.m in MATLAB to build pole figures\n";
 }
 
+void run_simple_simulation_unaxial_tension()
+{
+	std::ofstream out;          // поток для записи
+	out.open("Stress_strain_unaxial_tension.txt");      // открываем файл для записи
+
+	const std::string config_file = "rve_validation.txt";
+	const std::string loading_type = "========= UNAXIAL TENSION =========";
+	const double target_strain = 0.3;
+	const double dt = 1e-3;
+	std::vector<double> checkpoints = {};
+	checkpoints.resize(100);
+	for (unsigned i = 0; i < 100; i++)
+		checkpoints[i] = 0.01*i;
+	double eps_dot = 0.0017;
+	Eigen::Matrix3d L = Eigen::Matrix3d::Zero();
+	L(0, 0) = -0.5 * eps_dot;
+	L(1, 1) = -0.5 * eps_dot;
+	L(2, 2) = eps_dot;
+
+
+	RVE rve(config_file);
+	size_t current_checkpoint = 0;
+
+	std::cout << "\n--- " << loading_type << " ---\n";
+	std::cout << "RVE grains: " << rve.num_grains() << "\n";
+	std::cout << "Target strain (equiv): " << target_strain * 100 << "%\n";
+	std::cout << "Step size: dt = " << dt << "\n";
+
+	int step_count = 0;
+	while (rve.get_accumulated_strain() < target_strain) {
+		rve.Simulate_Step(dt, L);
+		step_count++;
+
+		double acc = rve.get_accumulated_strain();
+
+		if (current_checkpoint < checkpoints.size()) {
+			double cp = checkpoints[current_checkpoint];
+			if (acc >= cp) {
+				Eigen::Matrix3d str = rve.get_stress();
+				str -= str.trace()*Eigen::Matrix3d::Identity();
+				out << eps_dot * dt*step_count << "	" << sqrt(3.0/2.0 * (str*str).trace())/1e6 << '\n';
+
+				if (str(0, 0) != str(0, 0))
+					std::cout << 'NAN' << '\n';
+
+				std::cout << "  Reached " << cp * 100 << "% equiv strain at step " << step_count
+					<< " (actual: " << acc * 100 << "%)\n";
+
+				//std::string result_file = "orientations_" + loading_type + "_" + std::to_string(static_cast<int>(cp * 100)) + "pct.txt";
+				//export_orientations(rve, result_file, acc, loading_type);
+				current_checkpoint++;
+			}
+		}
+
+		if (step_count % 500 == 0)
+			std::cout << "  Step " << step_count << ": " << acc * 100 << "%\n";
+	}
+
+	std::cout << "Completed: " << loading_type
+		<< " final_equiv_strain = " << rve.get_accumulated_strain() * 100 << "%\n";
+
+	Eigen::Matrix3d stress = rve.get_stress();
+	std::cout << "Final stress:\n" << stress / 1e6 << " MPa\n";
+
+	Eigen::Matrix3d Dp = rve.get_plastic_strain_rate();
+	std::cout << "Plastic strain rate:\n" << Dp << "\n";
+	out.close();
+}
+
+void run_simple_simulation_hard_loading()
+{
+	std::ofstream out;          // поток для записи
+	out.open("Stress_strain_hard_loading.txt");      // открываем файл для записи
+
+	const std::string config_file = "rve_validation.txt";
+	const std::string loading_type = "========= UNAXIAL TENSION =========";
+	const double target_strain = 0.3;
+	const double dt = 1e-3;
+	std::vector<double> checkpoints = {};
+	checkpoints.resize(1000);
+	for (unsigned i = 0; i < 1000; i++)
+		checkpoints[i] = 0.001*i;
+	double eps_dot = 0.0017;
+	Eigen::Matrix3d L = Eigen::Matrix3d::Zero();
+	L(0, 0) = -0.5 * eps_dot;
+	L(1, 1) = -0.5 * eps_dot;
+	L(2, 2) = eps_dot;
+
+	Eigen::Matrix3d L1 = Eigen::Matrix3d::Zero();
+	L1(0, 0) =  eps_dot;
+	L1(1, 1) = -eps_dot;
+
+
+	RVE rve(config_file);
+	size_t current_checkpoint = 0;
+
+	std::cout << "\n--- " << loading_type << " ---\n";
+	std::cout << "RVE grains: " << rve.num_grains() << "\n";
+	std::cout << "Target strain (equiv): " << target_strain * 100 << "%\n";
+	std::cout << "Step size: dt = " << dt << "\n";
+
+	int step_count = 0;
+	while (rve.get_accumulated_strain() < target_strain) {
+		if (rve.get_accumulated_strain()<0.09)
+			rve.Simulate_Step(dt, L);
+		else
+			rve.Simulate_Step(dt, L1);
+		step_count++;
+
+		double acc = rve.get_accumulated_strain();
+
+		if (current_checkpoint < checkpoints.size()) {
+			double cp = checkpoints[current_checkpoint];
+			if (acc >= cp) {
+				Eigen::Matrix3d str = rve.get_stress();
+				str -= str.trace()*Eigen::Matrix3d::Identity();
+				out << acc << "	" << sqrt(3.0 / 2.0 * (str*str).trace()) / 1e6 << '\n';
+
+				if (str(0, 0) != str(0, 0))
+					std::cout << 'NAN' << '\n';
+
+				std::cout << "  Reached " << cp * 100 << "% equiv strain at step " << step_count
+					<< " (actual: " << acc * 100 << "%)\n";
+
+				//std::string result_file = "orientations_" + loading_type + "_" + std::to_string(static_cast<int>(cp * 100)) + "pct.txt";
+				//export_orientations(rve, result_file, acc, loading_type);
+				current_checkpoint++;
+			}
+		}
+
+		if (step_count % 500 == 0)
+			std::cout << "  Step " << step_count << ": " << acc * 100 << "%\n";
+	}
+
+	std::cout << "Completed: " << loading_type
+		<< " final_equiv_strain = " << rve.get_accumulated_strain() * 100 << "%\n";
+
+	Eigen::Matrix3d stress = rve.get_stress();
+	std::cout << "Final stress:\n" << stress / 1e6 << " MPa\n";
+
+	Eigen::Matrix3d Dp = rve.get_plastic_strain_rate();
+	std::cout << "Plastic strain rate:\n" << Dp << "\n";
+	out.close();
+}
+
+
 // ============================================================
 // Main
 // ============================================================
 
 int main(int argc, char* argv[])
 {
-    
+	run_simple_simulation_unaxial_tension();
+	run_simple_simulation_hard_loading();
 	run_all_tests();
-    //run_texture_simulation();
+    run_texture_simulation();
     
     return 0;
 }

@@ -336,7 +336,9 @@ void Grain::integrate(double dt)
 		for (int j = 0; j < n; j++)
 		{
 			double t_j = tc[j];
-			double Hii = params->A * params->h0 * std::pow(std::abs(1.0 - t_j / params->ts), params->alfa);
+			double Hii = 0;
+			if (t_j<= params->ts)
+				Hii = params->A * params->h0 * std::pow(std::abs(1.0 - t_j / params->ts), params->alfa);
 			H.col(j).setConstant(Hii * params->q);
 			H(j, j) = Hii;
 		}
