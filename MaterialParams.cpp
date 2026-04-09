@@ -54,7 +54,12 @@ MaterialParams::MaterialParams(const std::string& filename) {
                 Wpm[i*2](j, k) = 0.5 * (b[j]*n[k] - b[k]*n[j]);
             }
         Eigen::Matrix3d Ms = 0.5 * (M[i*2] + M[i*2].transpose());
-        Ms_v[i*2] = tensorToVoigt(Ms);
+        Ms_v[i*2](0) = Ms(0, 0);
+        Ms_v[i*2](1) = Ms(1, 1);
+        Ms_v[i*2](2) = Ms(2, 2);
+        Ms_v[i*2](3) = Ms(1, 2);  // тензорная компонента (без ×2)
+        Ms_v[i*2](4) = Ms(0, 2);  // чтобы σ_v · Ms_v = σ : Ms
+        Ms_v[i*2](5) = Ms(0, 1);
 
         for (int j = 0; j < 3; j++) b[j] = -b[j];
         M[i*2+1].setZero();
@@ -65,7 +70,12 @@ MaterialParams::MaterialParams(const std::string& filename) {
                 Wpm[i*2+1](j, k) = 0.5 * (b[j]*n[k] - b[k]*n[j]);
             }
         Ms = 0.5 * (M[i*2+1] + M[i*2+1].transpose());
-        Ms_v[i*2+1] = tensorToVoigt(Ms);
+        Ms_v[i*2+1](0) = Ms(0, 0);
+        Ms_v[i*2+1](1) = Ms(1, 1);
+        Ms_v[i*2+1](2) = Ms(2, 2);
+        Ms_v[i*2+1](3) = Ms(1, 2);
+        Ms_v[i*2+1](4) = Ms(0, 2);
+        Ms_v[i*2+1](5) = Ms(0, 1);
     }
 
     double c1, c2, c3;

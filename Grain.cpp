@@ -276,8 +276,20 @@ void Grain::find_SS(double dT)
 	double du = std::sqrt(2.0 / 3.0 * j2);
 
 	for (int i = 0; i < n; i++)
-		if (last_step[i])
-			Dp_v.noalias() += params->Ms_v[i] * sp_shifts[i];
+		if (last_step[i]) {
+			// Ms_v хранит тензорные компоненты сдвига (без ×2),
+			// но D_v — в инженерной нотации Фойгта (с ×2 на сдвиге).
+			// Конвертируем Dp_v в инженерную нотацию для корректного
+			// вычитания (D_v - Dp_v) перед умножением на P_v.
+			// Без этого сдвиговые компоненты Dp_v занижались в 2 раза,
+			// что приводило к завышению напряжений на ~20-25%.
+			Dp_v(0) += params->Ms_v[i](0) * sp_shifts[i];
+			Dp_v(1) += params->Ms_v[i](1) * sp_shifts[i];
+			Dp_v(2) += params->Ms_v[i](2) * sp_shifts[i];
+			Dp_v(3) += 2.0 * params->Ms_v[i](3) * sp_shifts[i];
+			Dp_v(4) += 2.0 * params->Ms_v[i](4) * sp_shifts[i];
+			Dp_v(5) += 2.0 * params->Ms_v[i](5) * sp_shifts[i];
+		}
 
 	Buf_v.noalias() = params->P_v * (D_v - Dp_v) * dT;
 	Buf_v += Stress_v;
