@@ -303,47 +303,9 @@ void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
 
 void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 {
-	clear();
-
-	if (params->rot_mode != 0)
-	{
-		L.noalias() = R_buf.transpose() * Lnew * R_buf;
-	}
-	else
-	{
-		L = Lnew;
-	}
-
-	Buf.noalias() = 0.5 * (L + L.transpose());
+	// Compute equivalent strain increment from Lnew (lab frame, rotation-invariant)
+	Buf.noalias() = 0.5 * (Lnew + Lnew.transpose());
 	tensorToVoigtInPlace(Buf, D_v);
-
-	dT = 0;
-	Sum_time = 0;
-	elastic_buft = 0;
-
-	dT = dt - Sum_time;
-
-	while (dt > Sum_time)
-	{
-		if (check_elastic(dT))
-			Sum_time += dT;
-		else
-		{
-			double dt_plastic = dT - elastic_buft;
-			Sum_time += dT;
-			if (dt_plastic > 1e-15)
-				find_SS(dt_plastic);
-		}
-		dT = dt - Sum_time;
-	}	
-
-	exp_buf.noalias() = dt * L;
-	F.noalias() = exp_buf.exp() * F;
-	Deformation.noalias() = 0.5 * (F.transpose() * F - Eigen::Matrix3d::Identity());
-
-	// Update grain-level state
-	time += dt;
-
 	double trD = D_v(0) + D_v(1) + D_v(2);
 	double mean = trD / 3.0;
 	double d1 = D_v(0) - mean;
@@ -351,8 +313,58 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 	double d3 = D_v(2) - mean;
 	double j2 = d1 * d1 + d2 * d2 + d3 * d3
 		+ 0.5 * (D_v(3) * D_v(3) + D_v(4) * D_v(4) + D_v(5) * D_v(5));
-	double D_eq = std::sqrt(2.0 / 3.0 * j2);
-	acc_def += D_eq * dt;
+	double du = std::sqrt(2.0 / 3.0 * j2);
+	double ds = du * dt;
+
+	// Adaptive sub-stepping: if strain increment exceeds ds_crit, split the step
+	constexpr double ds_crit = 1.7e-6;
+	int n_substeps = 1;
+	if (ds > ds_crit) {
+		n_substeps = static_cast<int>(std::ceil(ds / ds_crit));
+	}
+	double sub_dt = dt / n_substeps;
+
+	double time_done = 0;
+	for (int s = 0; s < n_substeps; s++) {
+		double actual_dt = (s == n_substeps - 1) ? (dt - time_done) : sub_dt;
+
+		clear();
+
+		// Transform L to crystal frame (orientation may have changed on previous substep)
+		if (params->rot_mode != 0) {
+			L.noalias() = R_buf.transpose() * Lnew * R_buf;
+		} else {
+			L = Lnew;
+		}
+		Buf.noalias() = 0.5 * (L + L.transpose());
+		tensorToVoigtInPlace(Buf, D_v);
+
+		// Elastic-plastic split for this substep
+		dT = actual_dt;
+		Sum_time = 0;
+		elastic_buft = 0;
+
+		while (actual_dt > Sum_time + 1e-15) {
+			if (check_elastic(dT))
+				Sum_time += dT;
+			else {
+				double dt_plastic = dT - elastic_buft;
+				Sum_time += dT;
+				if (dt_plastic > 1e-15)
+					find_SS(dt_plastic);
+			}
+			dT = actual_dt - Sum_time;
+		}
+
+		exp_buf.noalias() = actual_dt * L;
+		F.noalias() = exp_buf.exp() * F;
+
+		time_done += actual_dt;
+	}
+
+	Deformation.noalias() = 0.5 * (F.transpose() * F - Eigen::Matrix3d::Identity());
+	time += dt;
+	acc_def += ds;
 }
 
 double Grain::get_stress_intensity() const
