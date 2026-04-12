@@ -378,6 +378,30 @@ double Grain::get_stress_intensity() const
 	return std::sqrt(1.5 * j2s);
 }
 
+size_t Grain::num_slip_systems() const {
+	return params->num_slyde_sys * 2;
+}
+
+double Grain::get_tc(size_t i) const {
+	return tc[i];
+}
+
+double Grain::get_shifts(size_t i) const {
+	return shifts[i];
+}
+
+double Grain::get_sp_shifts(size_t i) const {
+	return sp_shifts[i];
+}
+
+uint8_t Grain::get_last_step(size_t i) const {
+	return last_step[i];
+}
+
+uint8_t Grain::get_new_step(size_t i) const {
+	return new_step[i];
+}
+
 Eigen::Matrix<double, 6, 1> Grain::get_stress()
 {
 	return Stress_v;

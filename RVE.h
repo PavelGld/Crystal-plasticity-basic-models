@@ -55,8 +55,15 @@ public:
     double get_time() const { return time; }
     double get_accumulated_strain() const { return acc_strain; }
     double get_stress_intensity() const;  // von Mises equivalent stress
-    
+
+    // Previous step values (for soft loading analysis)
+    Eigen::Matrix<double, 6, 1> get_stress_voigt_old() const { return stress_av_old_v; }
+    Eigen::Matrix<double, 6, 1> get_Dp_voigt_old() const { return Dp_av_old_v; }
+    Eigen::Matrix3d get_spin_old() const { return W_av_old; }
+
     size_t num_grains() const { return grains.size(); }
     const Grain& get_grain(size_t i) const { return grains[i]; }
+    Grain& get_grain(size_t i) { return grains[i]; }
     unsigned get_rot_mode() const { return materials.empty() ? 0 : materials[0]->rot_mode; }
+    double get_total_volume() const { return total_volume; }
 };

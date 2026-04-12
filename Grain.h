@@ -79,6 +79,29 @@ public:
 
 	double get_stress_intensity() const;  // von Mises equivalent stress
 
+	// State variables
+	double get_acc_def() const { return acc_def; }
+	double get_time() const { return time; }
+
+	// Deformation
+	const Eigen::Matrix3d& get_F() const { return F; }
+	const Eigen::Matrix3d& get_D() const { return Deformation; }
+	const Vector6d& get_D_v() const { return D_v; }
+
+	// Slip system state (indexed)
+	size_t num_slip_systems() const;  // total (doubled: ±b)
+	double get_tc(size_t i) const;
+	const std::vector<double>& get_tc_all() const { return tc; }
+	double get_shifts(size_t i) const;
+	const std::vector<double>& get_shifts_all() const { return shifts; }
+	double get_sp_shifts(size_t i) const;
+	const std::vector<double>& get_sp_shifts_all() const { return sp_shifts; }
+	uint8_t get_last_step(size_t i) const;
+	uint8_t get_new_step(size_t i) const;
+
+	// Hardening matrix
+	const Eigen::MatrixXd& get_H() const { return H; }
+
 	double get_volume() const { return volume; }
 	void set_volume(double v) { volume = v; }
 
