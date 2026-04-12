@@ -1,16 +1,8 @@
 #include "MaterialParams.h"
+#include "tensor_utils.h"
 #include <iostream>
 #include <fstream>
 #include <cmath>
-
-static int tensorToVoigtIndex(int i, int j) {
-    static const int voigt_index[3][3] = {
-        {0, 5, 4},
-        {5, 1, 3},
-        {4, 3, 2}
-    };
-    return voigt_index[i][j];
-}
 
 static Eigen::Matrix<double, 6, 1> tensorToVoigt(const Eigen::Matrix3d& A) {
     Eigen::Matrix<double, 6, 1> v;

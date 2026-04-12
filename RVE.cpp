@@ -33,7 +33,6 @@ RVE::RVE(const std::string& config_file) {
     W_av.setZero();
     Dp_av.setZero();
     F_av.setIdentity();
-    A_affine.setIdentity();
     time = 0;
     acc_strain = 0;
     
@@ -175,4 +174,17 @@ void RVE::Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt) {
     
     exp_buf.noalias() = dt * L_buf;
     F_av.noalias() = exp_buf.exp() * F_av;
+}
+
+double RVE::get_stress_intensity() const {
+    double s_mean = (stress_av(0,0) + stress_av(1,1) + stress_av(2,2)) / 3.0;
+    double s00 = stress_av(0,0) - s_mean;
+    double s11 = stress_av(1,1) - s_mean;
+    double s22 = stress_av(2,2) - s_mean;
+    double s12 = stress_av(0,1);
+    double s13 = stress_av(0,2);
+    double s23 = stress_av(1,2);
+    double j2s = s00 * s00 + s11 * s11 + s22 * s22
+        + 2.0 * (s12 * s12 + s13 * s13 + s23 * s23);
+    return std::sqrt(1.5 * j2s);
 }

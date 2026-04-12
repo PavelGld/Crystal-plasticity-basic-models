@@ -18,24 +18,18 @@ class RVE {
     Eigen::Matrix3d W_av;
     Eigen::Matrix3d Dp_av;
     Eigen::Matrix3d F_av;
-    
+
     double time;
     double acc_strain;
     double total_volume;
-    Eigen::Matrix3d A_affine;
-    
-    // Параметры итеративного метода
-    int max_iter = 20;
-    double tol = 1e-4;
-    
+
     // Сохранённые значения с прошлого шага
     Vector6d stress_av_old_v = Vector6d::Zero();
     Vector6d Dp_av_old_v = Vector6d::Zero();
     Eigen::Matrix3d W_av_old = Eigen::Matrix3d::Zero();
-    
+
     // Буферы для избежания аллокаций
     mutable Matrix6d P_av_buf;
-    mutable Matrix6d P_inv_buf;
     mutable Matrix6d temp_P_buf;
     mutable Vector6d dS_dt_v_buf;
     mutable Vector6d D_v_buf;
@@ -46,7 +40,7 @@ class RVE {
     mutable Eigen::Matrix3d W_sum_buf;
     mutable Eigen::Matrix3d exp_buf;
     mutable Eigen::Matrix3d temp_3x3_buf;
-    mutable Eigen::FullPivLU<Matrix6d> lu_buf;
+    mutable Eigen::PartialPivLU<Matrix6d> lu_buf;
 
 public:
     explicit RVE(const std::string& config_file);
@@ -60,6 +54,7 @@ public:
     Eigen::Matrix3d get_deformation_gradient() const { return F_av; }
     double get_time() const { return time; }
     double get_accumulated_strain() const { return acc_strain; }
+    double get_stress_intensity() const;  // von Mises equivalent stress
     
     size_t num_grains() const { return grains.size(); }
     const Grain& get_grain(size_t i) const { return grains[i]; }

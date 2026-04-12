@@ -11,7 +11,6 @@ class Grain
 {
 	using Vector6d = Eigen::Matrix<double, 6, 1>;
 	using Matrix6d = Eigen::Matrix<double, 6, 6>;
-	using Vector9d = Eigen::Matrix<double, 9, 1>;
 
 	MaterialParamsPtr params;
 
@@ -22,26 +21,15 @@ class Grain
 	mutable Vector6d Buf_PD;
 	mutable Matrix6d Buf_P;
 
-	Eigen::Matrix3d W;
-	Eigen::Matrix3d Spin;
 	Eigen::Matrix3d Wp;
-	Eigen::Matrix3d Z;
-	Eigen::Matrix3d Ze;
-	Eigen::Matrix3d Zp;
-	Vector6d Dp_v;
 	Eigen::Matrix3d L;
+	Vector6d Dp_v;
 	Vector6d D_v;
-	Vector9d L_9;
-	Vector9d Z_9;
-	Vector9d Ze_9;
-	Vector9d Zp_9;
-	Vector9d W_9;
 	Eigen::Matrix3d Deformation;
 	Eigen::Matrix3d F;
 
 	Eigen::Matrix3d Stress;
 	Vector6d Stress_v;
-	Eigen::Matrix3d Orient;
 
 	Eigen::Quaterniond orient_q;
 	mutable Eigen::Matrix3d R_buf;
@@ -55,20 +43,13 @@ class Grain
 	std::vector<uint8_t> last_step;
 	std::vector<uint8_t> new_step;
 
-	long int random_state;
-	long int num_crystall;
+	long int random_state;  // seed for grain orientation generation
 
 	std::vector<double> tc;
-	std::vector<double> tc_copy;
-
 	std::vector<double> shifts;
-	std::vector<double> shifts_copy;
 	std::vector<double> sp_shifts;
 
-	int linear_mode;
-	double sum_shifts;
-
-	double acc_def, time, stress_inten;
+	double acc_def, time;  // grain-level state (used when modeling a single grain)
 	double volume = 1.0;
 
 	void clear();
@@ -96,16 +77,16 @@ public:
 
 	Eigen::Matrix3d get_stress_lab() const;
 
+	double get_stress_intensity() const;  // von Mises equivalent stress
+
 	double get_volume() const { return volume; }
 	void set_volume(double v) { volume = v; }
 
 	const Vector6d& get_Dp_v() const { return Dp_v; }
 	void get_elasticity_lab_into(Matrix6d& result) const;
-	const Matrix6d& get_elasticity_lab() const;
 
 private:
 	mutable Matrix6d T_voigt_buf;
-	mutable Matrix6d P_lab_buf;
 	mutable bool T_voigt_valid = false;
 	mutable Eigen::Matrix3d exp_buf;
 	void computeVoigtRotationInPlace(Matrix6d& T) const;

@@ -174,6 +174,7 @@ rve.Simulate_Step_Soft(dt, dS_dt);
 
 ```
 EigenProject/
+├── tensor_utils.h                — общие функции тензорной алгебры (Voigt, 9d)
 ├── MaterialParams.h/cpp          — материальные параметры (shared_ptr)
 ├── Grain.h/cpp                   — класс зерна
 ├── RVE.h/cpp                     — представительский объём (RVE)

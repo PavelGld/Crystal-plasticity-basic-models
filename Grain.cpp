@@ -1,52 +1,8 @@
 #include "Grain.h"
+#include "tensor_utils.h"
 #include <iostream>
 #include <fstream>
 #include <unsupported/Eigen/MatrixFunctions>
-
-static int tensorToVoigtIndex(int i, int j) {
-	static const int voigt_index[3][3] = {
-		{0, 5, 4},
-		{5, 1, 3},
-		{4, 3, 2}
-	};
-	return voigt_index[i][j];
-}
-
-static std::pair<int, int> voigtToTensorIndex(int voigt_idx) {
-	static const std::pair<int, int> tensor_index[6] = {
-		{0, 0},
-		{1, 1},
-		{2, 2},
-		{1, 2},
-		{0, 2},
-		{0, 1}
-	};
-	return tensor_index[voigt_idx];
-}
-
-static void tensorToVoigtInPlace(const Eigen::Matrix3d& A, Eigen::Matrix<double, 6, 1>& v) {
-	v(0) = A(0, 0);
-	v(1) = A(1, 1);
-	v(2) = A(2, 2);
-	v(3) = A(1, 2) + A(2, 1);
-	v(4) = A(0, 2) + A(2, 0);
-	v(5) = A(0, 1) + A(1, 0);
-}
-
-static void voigtToTensorInPlace(const Eigen::Matrix<double, 6, 1>& v, Eigen::Matrix3d& A) {
-	A(0, 0) = v(0);
-	A(1, 1) = v(1);
-	A(2, 2) = v(2);
-	A(1, 2) = A(2, 1) = v(3) * 0.5;
-	A(0, 2) = A(2, 0) = v(4) * 0.5;
-	A(0, 1) = A(1, 0) = v(5) * 0.5;
-}
-
-static void tensorTo9dInPlace(const Eigen::Matrix3d& A, Eigen::Matrix<double, 9, 1>& v) {
-	v(0) = A(0, 0); v(1) = A(0, 1); v(2) = A(0, 2);
-	v(3) = A(1, 0); v(4) = A(1, 1); v(5) = A(1, 2);
-	v(6) = A(2, 0); v(7) = A(2, 1); v(8) = A(2, 2);
-}
 
 Grain::Grain(std::string info)
 {
@@ -56,27 +12,14 @@ Grain::Grain(std::string info)
 
 	time = 0;
 	acc_def = 0;
-	stress_inten = 0;
 
 	Buf.setZero();
-
-	W.setZero();
-	tensorTo9dInPlace(W, W_9);
-	Spin.setZero();
 	Wp.setZero();
-	Z.setZero();
-	tensorTo9dInPlace(Z, Z_9);
-	Ze.setZero();
-	tensorTo9dInPlace(Ze, Ze_9);
-	Zp.setZero();
-	tensorTo9dInPlace(Zp, Zp_9);
 	L.setZero();
-	tensorTo9dInPlace(L, L_9);
 	Deformation.setZero();
 	F.setIdentity();
 
 	Stress.setZero();
-	Orient.setZero();
 	orient_q = Eigen::Quaterniond::Identity();
 	R_buf.setIdentity();
 	omega_buf.setZero();
@@ -94,10 +37,7 @@ Grain::Grain(std::string info)
 	new_step.resize(params->num_slyde_sys * 2);
 
 	tc.resize(params->num_slyde_sys * 2);
-	tc_copy.resize(params->num_slyde_sys * 2);
-
 	shifts.resize(params->num_slyde_sys * 2);
-	shifts_copy.resize(params->num_slyde_sys * 2);
 	sp_shifts.resize(params->num_slyde_sys * 2);
 
 	for (int i = 0; i < params->num_slyde_sys * 2; i++)
@@ -106,12 +46,11 @@ Grain::Grain(std::string info)
 		new_step[i] = 0;
 
 		tc[i] = params->tc0;
-		tc_copy[i] = params->tc0;
-
 		shifts[i] = 0;
-		shifts_copy[i] = 0;
 		sp_shifts[i] = 0;
 	}
+
+	random_state = 0;
 }
 
 Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
@@ -119,27 +58,14 @@ Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
 {
 	time = 0;
 	acc_def = 0;
-	stress_inten = 0;
 
 	Buf.setZero();
-
-	W.setZero();
-	tensorTo9dInPlace(W, W_9);
-	Spin.setZero();
 	Wp.setZero();
-	Z.setZero();
-	tensorTo9dInPlace(Z, Z_9);
-	Ze.setZero();
-	tensorTo9dInPlace(Ze, Ze_9);
-	Zp.setZero();
-	tensorTo9dInPlace(Zp, Zp_9);
 	L.setZero();
-	tensorTo9dInPlace(L, L_9);
 	Deformation.setZero();
 	F.setIdentity();
 
 	Stress.setZero();
-	Orient.setZero();
 	orient_q = orientation.normalized();
 	R_buf = orient_q.toRotationMatrix();
 	omega_buf.setZero();
@@ -157,10 +83,7 @@ Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
 	new_step.resize(params->num_slyde_sys * 2);
 
 	tc.resize(params->num_slyde_sys * 2);
-	tc_copy.resize(params->num_slyde_sys * 2);
-
 	shifts.resize(params->num_slyde_sys * 2);
-	shifts_copy.resize(params->num_slyde_sys * 2);
 	sp_shifts.resize(params->num_slyde_sys * 2);
 
 	for (int i = 0; i < params->num_slyde_sys * 2; i++)
@@ -169,30 +92,20 @@ Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
 		new_step[i] = 0;
 
 		tc[i] = params->tc0;
-		tc_copy[i] = params->tc0;
-
 		shifts[i] = 0;
-		shifts_copy[i] = 0;
 		sp_shifts[i] = 0;
 	}
+
+	random_state = 0;
 }
 
 void Grain::clear()
 {
 	Buf.setZero();
 	Buf_v.setZero();
-	W.setZero();
-	tensorTo9dInPlace(W, W_9);
 	Wp.setZero();
-	Z.setZero();
-	tensorTo9dInPlace(Z, Z_9);
-	Ze.setZero();
-	tensorTo9dInPlace(Ze, Ze_9);
-	Zp.setZero();
-	tensorTo9dInPlace(Zp, Zp_9);
 	Dp_v.setZero();
 	D_v.setZero();
-	tensorTo9dInPlace(L, L_9);
 	for (int i = 0; i < 2 * params->num_slyde_sys; i++)
 	{
 		last_step[i] = new_step[i];
@@ -401,7 +314,6 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 		L = Lnew;
 	}
 
-	tensorTo9dInPlace(L, L_9);
 	Buf.noalias() = 0.5 * (L + L.transpose());
 	tensorToVoigtInPlace(Buf, D_v);
 
@@ -429,6 +341,29 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 	F.noalias() = exp_buf.exp() * F;
 	Deformation.noalias() = 0.5 * (F.transpose() * F - Eigen::Matrix3d::Identity());
 
+	// Update grain-level state
+	time += dt;
+
+	double trD = D_v(0) + D_v(1) + D_v(2);
+	double mean = trD / 3.0;
+	double d1 = D_v(0) - mean;
+	double d2 = D_v(1) - mean;
+	double d3 = D_v(2) - mean;
+	double j2 = d1 * d1 + d2 * d2 + d3 * d3
+		+ 0.5 * (D_v(3) * D_v(3) + D_v(4) * D_v(4) + D_v(5) * D_v(5));
+	double D_eq = std::sqrt(2.0 / 3.0 * j2);
+	acc_def += D_eq * dt;
+}
+
+double Grain::get_stress_intensity() const
+{
+	double s_mean = (Stress_v(0) + Stress_v(1) + Stress_v(2)) / 3.0;
+	double s1 = Stress_v(0) - s_mean;
+	double s2 = Stress_v(1) - s_mean;
+	double s3 = Stress_v(2) - s_mean;
+	double j2s = s1 * s1 + s2 * s2 + s3 * s3
+		+ 0.5 * (Stress_v(3) * Stress_v(3) + Stress_v(4) * Stress_v(4) + Stress_v(5) * Stress_v(5));
+	return std::sqrt(1.5 * j2s);
 }
 
 Eigen::Matrix<double, 6, 1> Grain::get_stress()
@@ -482,14 +417,4 @@ void Grain::get_elasticity_lab_into(Matrix6d& result) const {
 	}
 	Buf_P.noalias() = T_voigt_buf * params->P_v;
 	result.noalias() = Buf_P * T_voigt_buf.transpose();
-}
-
-const Grain::Matrix6d& Grain::get_elasticity_lab() const {
-	if (!T_voigt_valid) {
-		computeVoigtRotationInPlace(T_voigt_buf);
-		T_voigt_valid = true;
-	}
-	Buf_P.noalias() = T_voigt_buf * params->P_v;
-	P_lab_buf.noalias() = Buf_P * T_voigt_buf.transpose();
-	return P_lab_buf;
 }

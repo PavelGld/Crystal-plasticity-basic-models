@@ -10,6 +10,7 @@ C++ реализация модели кристаллической пласт�
 
 ```
 EigenProject/
+├── tensor_utils.h                — общие функции тензорной алгебры (Voigt, 9d)
 ├── MaterialParams.h/cpp          — структура материальных параметров (shared_ptr)
 ├── Grain.h/cpp                   — класс зерна (ориентация, системы скольжения, интеграция)
 ├── RVE.h/cpp                     — представительский объём (множество зёрен, осреднение)
@@ -198,6 +199,25 @@ n_power
 - `.noalias()` везде где возможно
 - OpenMP для параллелизации зёрен в RVE
 - Кэш матрицы поворота Фойгта (T_voigt_valid)
+- `PartialPivLU` вместо `FullPivLU` для инверсии 6×6 (быстрее)
+- Общий `tensor_utils.h` — нет дублирования функций конвертации
+
+## Рефакторинг (апрель 2026)
+
+### Удалён мёртвый код (~800 байт/зерно)
+- **Grain:** удалены поля `Orient`, `Spin`, `Z`, `Ze`, `Zp`, `W_9`, `Z_9`, `Ze_9`, `Zp_9`, `L_9`, `tc_copy`, `shifts_copy`, `num_crystall`, `linear_mode`, `sum_shifts`, `P_lab_buf`, `Vector9d` type alias
+- **RVE:** удалены поля `A_affine`, `P_inv_buf`, `max_iter`, `tol`
+- **Grain:** удалён `get_elasticity_lab()` (возврат ссылки на mutable буфер), оставлен только `get_elasticity_lab_into(result)`
+
+### Добавлено
+- `tensor_utils.h` — общие функции: `tensorToVoigtIndex`, `voigtToTensorIndex`, `tensorToVoigtInPlace`, `voigtToTensorInPlace`, `tensorTo9dInPlace`
+- `Grain::get_stress_intensity()` — von Mises эквивалентные напряжения (вычисляется по запросу)
+- `RVE::get_stress_intensity()` — аналогично для RVE
+- `Grain::acc_def += D_eq * dt` — накопление деформации на уровне зерна
+- `Grain::time += dt` — время на уровне зерна
+
+### Изменено
+- `FullPivLU` → `PartialPivLU` в `RVE::lu_buf`
 
 ## Методы класса Grain
 
@@ -208,9 +228,13 @@ void Simulate_Step(double dt, Matrix3d L)  // шаг интегрировани�
 
 Vector6d get_stress()                      // напряжения в КСК
 Matrix3d get_stress_lab()                  // напряжения в ЛСК
-Quaterniond get_orientation()              // кватернион ориентации
+double get_stress_intensity() const        // эквивалентные напряжения (von Mises)
+Quaterniond get_orientation() const        // кватернион ориентации
 void set_orientation(const Quaterniond& q) // установка ориентации
-Matrix6d get_elasticity_lab()              // упругость в ЛСК (Фойгт)
+void get_elasticity_lab_into(Matrix6d& result) const // упругость в ЛСК (Фойгт), записывает в result
+
+double acc_def  // накопленная эквивалентная деформация (уровень зерна)
+double time     // время моделирования (уровень зерна)
 ```
 
 ## Методы класса RVE
@@ -224,8 +248,9 @@ Matrix3d get_stress()
 Matrix3d get_spin()
 Matrix3d get_plastic_strain_rate()
 Matrix3d get_deformation_gradient()
-double get_time()
-double get_accumulated_strain()
+double get_stress_intensity() const        // эквивалентные напряжения (von Mises)
+double get_time() const
+double get_accumulated_strain() const
 size_t num_grains()
 const Grain& get_grain(size_t i)
 ```
