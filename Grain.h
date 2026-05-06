@@ -13,6 +13,7 @@ class Grain
     MaterialParamsPtr params;
 
     Eigen::MatrixXd H;
+    mutable Eigen::VectorXd H_buf;
 
     mutable Eigen::Matrix3d Buf;
     mutable Vector6d Buf_v;
