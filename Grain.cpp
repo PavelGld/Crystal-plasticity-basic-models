@@ -20,11 +20,11 @@ Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
 {
     H = params->H;
 
+    init_common();
+
     orient_q = orientation.normalized();
     R_buf = orient_q.toRotationMatrix();
     T_voigt_valid = false;
-
-    init_common();
 }
 
 void Grain::init_common()
