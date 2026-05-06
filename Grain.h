@@ -18,7 +18,6 @@ class Grain
     mutable Vector6d Buf_v;
     mutable Vector6d Buf_PD;
     mutable Matrix6d Buf_P;
-    mutable Vector6d strain_gl_v_buf;
 
     Eigen::Matrix3d Wp;
     Eigen::Matrix3d L;
@@ -90,9 +89,8 @@ public:
 
     // Deformation
     const Eigen::Matrix3d& get_strain() const { return strain_gl; }
-    const Vector6d& get_strain_v() const {
-        tensorToVoigtInPlace(strain_gl, strain_gl_v_buf);
-        return strain_gl_v_buf;
+    void get_strain_v_into(Vector6d& out) const {
+        tensorToVoigtInPlace(strain_gl, out);
     }
 
     // Slip system state (indexed)

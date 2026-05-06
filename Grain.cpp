@@ -36,7 +36,6 @@ void Grain::init_common()
     Buf_v.setZero();
     Buf_PD.setZero();
     Buf_P.setZero();
-    strain_gl_v_buf.setZero();
     Wp.setZero();
     L.setZero();
     strain_gl.setZero();
