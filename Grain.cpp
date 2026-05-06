@@ -206,15 +206,17 @@ void Grain::integrate(double dt)
 
     if (params->hard_mode == 2)
     {
+        Eigen::VectorXd h(n);
         for (int j = 0; j < n; j++)
         {
             double t_j = tc[j];
             double Hii = 0;
-            if (t_j<= params->ts)
+            if (t_j <= params->ts)
                 Hii = params->A * params->h0 * std::pow(std::abs(1.0 - t_j / params->ts), params->alfa);
-            H.col(j).setConstant(Hii * params->q);
-            H(j, j) = Hii;
+            h(j) = Hii;
         }
+        H.noalias() = params->q * Eigen::VectorXd::Ones(n) * h.transpose();
+        H.diagonal() = h;
     }
 
     if (params->rot_mode != 0)
