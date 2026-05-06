@@ -38,7 +38,7 @@ struct MaterialParams {
     std::vector<Eigen::Matrix3d> M;      // тензоры ориентации M = b⊗n
     std::vector<Eigen::Matrix3d> Wpm;    // антисимметричная часть Wpm = 0.5*(b⊗n - n⊗b)
     std::vector<Vector6d> Ms_v;          // симметричная часть в Фойгте
-    int num_slyde_sys;
+    int num_slip_sys;
 
     // Упругость
     Matrix6d P_v;                        // матрица упругости в Фойгте
@@ -181,7 +181,7 @@ orient_q = orient_q * dq   // СПРАВА (omega в КСК)
 
 ```
 hard_mode rot_mode
-num_slyde_sys
+num_slip_sys
 b1_x b1_y b1_z n1_x n1_y n1_z
 ...
 c11 c12 c44

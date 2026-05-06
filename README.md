@@ -116,7 +116,7 @@ plot_polefigures   # построит PF для всех 4 режимов и с�
 
 ```
 hard_mode rot_mode
-num_slyde_sys
+num_slip_sys
 b1_x b1_y b1_z n1_x n1_y n1_z    (система 1: b=направление сдвига, n=нормаль)
 ...
 c11 c12 c44                        (упругие константы, Па)

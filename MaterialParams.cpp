@@ -20,14 +20,14 @@ MaterialParams::MaterialParams(const std::string& filename) {
     file >> hard_mode_temp >> rot_mode_temp;
     hard_mode = hard_mode_temp;
     rot_mode = rot_mode_temp;
-    file >> num_slyde_sys;
+    file >> num_slip_sys;
 
     std::vector<double> b(3), n(3);
-    M.resize(num_slyde_sys * 2);
-    Wpm.resize(num_slyde_sys * 2);
-    Ms_v.resize(num_slyde_sys * 2);
+    M.resize(num_slip_sys * 2);
+    Wpm.resize(num_slip_sys * 2);
+    Ms_v.resize(num_slip_sys * 2);
 
-    for (int i = 0; i < num_slyde_sys; i++) {
+    for (int i = 0; i < num_slip_sys; i++) {
         for (int j = 0; j < 3; j++) file >> b[j];
         for (int j = 0; j < 3; j++) file >> n[j];
 
@@ -78,7 +78,7 @@ MaterialParams::MaterialParams(const std::string& filename) {
     P_v(0,1) = P_v(1,0) = P_v(1,2) = P_v(2,1) = P_v(0,2) = P_v(2,0) = c2;
     P_v(3,3) = P_v(4,4) = P_v(5,5) = c3;
 
-    H.resize(num_slyde_sys * 2, num_slyde_sys * 2);
+    H.resize(num_slip_sys * 2, num_slip_sys * 2);
 
     if (hard_mode == 2) {
         file >> A >> q >> h0 >> ts >> alfa;

@@ -33,14 +33,14 @@ Grain::Grain(std::string info)
 	Dp_v.setZero();
 	Stress_v.setZero();
 
-	last_step.resize(params->num_slyde_sys * 2);
-	new_step.resize(params->num_slyde_sys * 2);
+	last_step.resize(params->num_slip_sys * 2);
+	new_step.resize(params->num_slip_sys * 2);
 
-	tc.resize(params->num_slyde_sys * 2);
-	shifts.resize(params->num_slyde_sys * 2);
-	sp_shifts.resize(params->num_slyde_sys * 2);
+	tc.resize(params->num_slip_sys * 2);
+	shifts.resize(params->num_slip_sys * 2);
+	sp_shifts.resize(params->num_slip_sys * 2);
 
-	for (int i = 0; i < params->num_slyde_sys * 2; i++)
+	for (int i = 0; i < params->num_slip_sys * 2; i++)
 	{
 		last_step[i] = 0;
 		new_step[i] = 0;
@@ -79,14 +79,14 @@ Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
 	Dp_v.setZero();
 	Stress_v.setZero();
 
-	last_step.resize(params->num_slyde_sys * 2);
-	new_step.resize(params->num_slyde_sys * 2);
+	last_step.resize(params->num_slip_sys * 2);
+	new_step.resize(params->num_slip_sys * 2);
 
-	tc.resize(params->num_slyde_sys * 2);
-	shifts.resize(params->num_slyde_sys * 2);
-	sp_shifts.resize(params->num_slyde_sys * 2);
+	tc.resize(params->num_slip_sys * 2);
+	shifts.resize(params->num_slip_sys * 2);
+	sp_shifts.resize(params->num_slip_sys * 2);
 
-	for (int i = 0; i < params->num_slyde_sys * 2; i++)
+	for (int i = 0; i < params->num_slip_sys * 2; i++)
 	{
 		last_step[i] = 0;
 		new_step[i] = 0;
@@ -106,7 +106,7 @@ void Grain::clear()
 	Wp.setZero();
 	Dp_v.setZero();
 	D_v.setZero();
-	for (int i = 0; i < 2 * params->num_slyde_sys; i++)
+	for (int i = 0; i < 2 * params->num_slip_sys; i++)
 	{
 		last_step[i] = new_step[i];
 		new_step[i] = 0;
@@ -115,7 +115,7 @@ void Grain::clear()
 
 bool Grain::check_elastic(double dt)
 {
-	int n = 2 * params->num_slyde_sys;
+	int n = 2 * params->num_slip_sys;
 	
 	Buf_PD.noalias() = params->P_v * D_v;
 	
@@ -141,7 +141,7 @@ bool Grain::check_elastic(double dt)
 
 		if (was_in_plastic)
 		{
-			elastic_buft = 0;  // зерно уже в пластике — весь шаг пластический
+			elastic_buf = 0;  // зерно уже в пластике — весь шаг пластический
 			Buf_v.setZero();
 			return TF;
 		}
@@ -158,7 +158,7 @@ bool Grain::check_elastic(double dt)
 			// Упругая фаза: интегрируем с полным шагом buft
 			Stress_v.noalias() += Buf_PD * buft;
 			Buf_v.setZero();
-			elastic_buft = buft;
+			elastic_buf = buft;
 			integrate(buft);
 			return false;
 		}
@@ -177,7 +177,7 @@ bool Grain::check_elastic(double dt)
 
 void Grain::find_SS(double dT)
 { 
-	int n = 2 * params->num_slyde_sys;
+	int n = 2 * params->num_slip_sys;
 	
 	double trD = D_v(0) + D_v(1) + D_v(2);
 	double mean = trD / 3.0;
@@ -231,7 +231,7 @@ void Grain::find_SS(double dT)
 
 void Grain::integrate(double dt)
 {
-	int n = 2 * params->num_slyde_sys;
+	int n = 2 * params->num_slip_sys;
 	
 	for (int j = 0; j < n; j++)
 	{
@@ -278,7 +278,7 @@ void Grain::integrate(double dt)
 void Grain::computePlasticSpin()
 {
 	Wp_mat_buf.setZero();
-	for (int i = 0; i < 2 * params->num_slyde_sys; i++)
+	for (int i = 0; i < 2 * params->num_slip_sys; i++)
 		if (new_step[i])
 			Wp_mat_buf.noalias() += sp_shifts[i] * params->Wpm[i];
 }
@@ -342,13 +342,13 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 		// Elastic-plastic split for this substep
 		dT = actual_dt;
 		Sum_time = 0;
-		elastic_buft = 0;
+		elastic_buf = 0;
 
 		while (actual_dt > Sum_time + 1e-15) {
 			if (check_elastic(dT))
 				Sum_time += dT;
 			else {
-				double dt_plastic = dT - elastic_buft;
+				double dt_plastic = dT - elastic_buf;
 				Sum_time += dT;
 				if (dt_plastic > 1e-15)
 					find_SS(dt_plastic);
@@ -379,7 +379,7 @@ double Grain::get_stress_intensity() const
 }
 
 size_t Grain::num_slip_systems() const {
-	return params->num_slyde_sys * 2;
+	return params->num_slip_sys * 2;
 }
 
 double Grain::get_tc(size_t i) const {

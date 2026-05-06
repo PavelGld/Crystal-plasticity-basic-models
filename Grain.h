@@ -57,7 +57,7 @@ class Grain
 
 	double dT;
 	double Sum_time;
-	double elastic_buft;
+	double elastic_buf;
 	void find_SS(double dT);
 	void integrate(double dt);
 

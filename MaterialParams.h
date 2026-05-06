@@ -11,7 +11,7 @@ struct MaterialParams {
     std::vector<Eigen::Matrix3d> M;
     std::vector<Eigen::Matrix3d> Wpm;
     std::vector<Vector6d> Ms_v;
-    int num_slyde_sys;
+    int num_slip_sys;
 
     Matrix6d P_v;
 
