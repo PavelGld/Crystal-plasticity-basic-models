@@ -402,7 +402,7 @@ uint8_t Grain::get_new_step(size_t i) const {
 	return new_step[i];
 }
 
-Eigen::Matrix<double, 6, 1> Grain::get_stress()
+Eigen::Matrix<double, 6, 1> Grain::get_stress() const
 {
 	return Stress_v;
 }

@@ -11,8 +11,8 @@
 
 int main()
 {
-	std::ofstream out;          // поток для записи
-	out.open("Stress_strain_hard_loading.txt");      // открываем файл для записи
+	std::ofstream out;          // пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
+	out.open("Stress_strain_hard_loading.txt");      // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
 
 	const std::string config_file = "rve_validation.txt";
 	const std::string loading_type = "========= HARD LOADING =========";
@@ -55,11 +55,12 @@ int main()
 			double cp = checkpoints[current_checkpoint];
 			if (acc >= cp) {
 				Eigen::Matrix3d str = rve.get_stress();
-				str -= str.trace()*Eigen::Matrix3d::Identity();
-				out << acc << "	" << rve.get_stress_intensity() / 1e6 << '\n';
+				str -= str.trace() * Eigen::Matrix3d::Identity();
 
 				if (str(0, 0) != str(0, 0))
-					std::cout << 'NAN' << '\n';
+					std::cout << "NAN\n";
+
+				out << acc << "	" << rve.get_stress_intensity() / 1e6 << '\n';
 
 				std::cout << "  Reached " << cp * 100 << "% equiv strain at step " << step_count
 					<< " (actual: " << acc * 100 << "%)\n";

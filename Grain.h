@@ -69,7 +69,7 @@ public:
 	Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation);
 	void Simulate_Step(double dt, const Eigen::Matrix3d& Lnew);
 
-	Grain::Vector6d get_stress();
+	Grain::Vector6d get_stress() const;
 
 	Eigen::Quaterniond get_orientation() const;
 

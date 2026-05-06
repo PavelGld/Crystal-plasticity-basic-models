@@ -1,4 +1,5 @@
 #include "RVE.h"
+#include "tensor_utils.h"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -50,7 +51,7 @@ void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {
     
     int n = static_cast<int>(grains.size());
 #ifdef _OPENMP
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(dynamic)
 #endif
     for (int i = 0; i < n; i++) {
         grains[i].Simulate_Step(dt, L);
@@ -98,9 +99,7 @@ void RVE::Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt) {
     }
     
     // 2. Вычислить D из формулы: D = P^-1 : dS/dt + Dp
-    dS_dt_v_buf << dS_dt(0,0), dS_dt(1,1), dS_dt(2,2), 
-                   dS_dt(1,2)+dS_dt(2,1), dS_dt(0,2)+dS_dt(2,0), 
-                   dS_dt(0,1)+dS_dt(1,0);
+    tensorToVoigtInPlace(dS_dt, dS_dt_v_buf);
     
     // LU-инверсия без аллокаций
     lu_buf.compute(P_av_buf);
@@ -108,15 +107,13 @@ void RVE::Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt) {
     D_v_buf.noalias() += Dp_av_old_v;
     
     // 3. Преобразовать в L (спин с прошлого шага)
-    D_buf << D_v_buf(0), D_v_buf(5)/2, D_v_buf(4)/2,
-             D_v_buf(5)/2, D_v_buf(1), D_v_buf(3)/2,
-             D_v_buf(4)/2, D_v_buf(3)/2, D_v_buf(2);
+    voigtToTensorInPlace(D_v_buf, D_buf);
     
     L_buf.noalias() = D_buf + W_av_old;
     
     // 4. Параллельный расчёт зёрен
 #ifdef _OPENMP
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(dynamic)
 #endif
     for (int i = 0; i < n; i++) {
         grains[i].Simulate_Step(dt, L_buf);
