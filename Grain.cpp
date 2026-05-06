@@ -309,7 +309,11 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
         }
 
         exp_buf.noalias() = actual_dt * L;
-        F.noalias() = exp_buf.exp() * F;
+        if (exp_buf.norm() < 1e-2) {
+            applyExpTaylor(exp_buf, F, Buf);
+        } else {
+            F.noalias() = exp_buf.exp() * F;
+        }
 
         time_done += actual_dt;
     }

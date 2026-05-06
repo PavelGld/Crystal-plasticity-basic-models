@@ -142,7 +142,11 @@ void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {
     sim_time += dt;
     
     exp_buf.noalias() = dt * L;
-    F_av.noalias() = exp_buf.exp() * F_av;
+    if (exp_buf.norm() < 1e-2) {
+        applyExpTaylor(exp_buf, F_av, temp_3x3_buf);
+    } else {
+        F_av.noalias() = exp_buf.exp() * F_av;
+    }
 }
 
 void RVE::Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt) {
@@ -229,7 +233,11 @@ void RVE::Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt) {
     sim_time += dt;
     
     exp_buf.noalias() = dt * L_buf;
-    F_av.noalias() = exp_buf.exp() * F_av;
+    if (exp_buf.norm() < 1e-2) {
+        applyExpTaylor(exp_buf, F_av, temp_3x3_buf);
+    } else {
+        F_av.noalias() = exp_buf.exp() * F_av;
+    }
 }
 
 double RVE::get_stress_intensity() const {

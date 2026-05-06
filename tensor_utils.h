@@ -45,4 +45,14 @@ inline void voigtToTensorInPlace(const Eigen::Matrix<double, 6, 1>& v, Eigen::Ma
     A(0, 1) = A(1, 0) = v(5) * 0.5;
 }
 
+// F = exp(A) * F   using Taylor series when ||A|| is small
+// Uses scratch as workspace (3x3 buffer, will be overwritten)
+inline void applyExpTaylor(const Eigen::Matrix3d& A, Eigen::Matrix3d& F, Eigen::Matrix3d& scratch) {
+    scratch.setIdentity();
+    scratch.noalias() += A;
+    Eigen::Matrix3d A2 = A * A;
+    scratch.noalias() += A2 * 0.5;
+    F.noalias() = scratch * F;
+}
+
 
