@@ -3,11 +3,12 @@
 #include <Eigen/Geometry>
 #include <string>
 #include <cmath>
+#include <algorithm>
 #include <fstream>
 #include "Grain.h"
 #include "RVE.h"
 
-#define M_PI 3.14159265358979323846
+constexpr double pi = 3.14159265358979323846;
 
 int main()
 {

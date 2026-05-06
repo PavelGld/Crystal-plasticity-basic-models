@@ -4,11 +4,12 @@
 #include <string>
 #include <vector>
 #include <iomanip>
+#include <algorithm>
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include "RVE.h"
 
-#define M_PI 3.14159265358979323846
+constexpr double pi = 3.14159265358979323846;
 
 // ============================================================
 // Unit tests (single grain / RVE sanity checks)
@@ -20,7 +21,7 @@ static void test_uniaxial_stretch_no_rotation()
 
     Grain gr("grain.txt");
 
-    Eigen::AngleAxisd aa_init(M_PI / 6.0, Eigen::Vector3d::UnitZ());
+    Eigen::AngleAxisd aa_init(pi / 6.0, Eigen::Vector3d::UnitZ());
     Eigen::Quaterniond q_init(aa_init);
     gr.set_orientation(q_init);
 
@@ -75,9 +76,9 @@ static void test_simple_shear_rotation()
     double actual_angle = 2.0 * std::acos(std::abs(q_after.w()));
 
     std::cout << "Expected rotation angle: " << expected_angle << " rad ("
-              << expected_angle * 180.0 / M_PI << " deg)\n";
+              << expected_angle * 180.0 / pi << " deg)\n";
     std::cout << "Actual rotation angle: " << actual_angle << " rad ("
-              << actual_angle * 180.0 / M_PI << " deg)\n";
+              << actual_angle * 180.0 / pi << " deg)\n";
 
     double angle_error = std::abs(actual_angle - expected_angle);
     if (angle_error < 1e-5)
@@ -270,8 +271,8 @@ void run_texture_simulation()
 
 void run_simple_simulation_unaxial_tension()
 {
-	std::ofstream out;          // поток для записи
-	out.open("Stress_strain_unaxial_tension.txt");      // открываем файл для записи
+	std::ofstream out;          // пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
+	out.open("Stress_strain_unaxial_tension.txt");      // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
 
 	const std::string config_file = "rve_validation.txt";
 	const std::string loading_type = "========= UNAXIAL TENSION =========";
@@ -339,8 +340,8 @@ void run_simple_simulation_unaxial_tension()
 
 void run_simple_simulation_hard_loading()
 {
-	std::ofstream out;          // поток для записи
-	out.open("Stress_strain_hard_loading.txt");      // открываем файл для записи
+	std::ofstream out;          // пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
+	out.open("Stress_strain_hard_loading.txt");      // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
 
 	const std::string config_file = "rve_validation.txt";
 	const std::string loading_type = "========= UNAXIAL TENSION =========";
