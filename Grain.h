@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include <unsupported/Eigen/CXX11/Tensor>
@@ -24,7 +24,7 @@ class Grain
     Eigen::Matrix3d L;
     Vector6d Dp_v;
     Vector6d D_v;
-    Eigen::Matrix3d Deformation;
+    Eigen::Matrix3d strain_gl;  // Green-Lagrange strain tensor
     Eigen::Matrix3d F;
 
     Eigen::Matrix3d Stress;
@@ -51,6 +51,11 @@ class Grain
     double acc_def, time;  // grain-level state (used when modeling a single grain)
     double volume = 1.0;
 
+    static constexpr double ROTATION_ANGLE_THRESHOLD = 1e-14;
+    static constexpr double TIME_EPSILON = 1e-15;
+    static constexpr double DS_CRITICAL = 1.7e-6;
+
+    void init_common();
     void clear();
     bool check_elastic(double dt);
 
@@ -62,6 +67,7 @@ class Grain
 
     void computePlasticSpin();
     void updateOrientation(const Eigen::Matrix3d& Omega, double dt);
+    double computeDeviatoricDu() const;
 
 public:
     Grain(std::string info);
@@ -83,9 +89,8 @@ public:
     double get_time() const { return time; }
 
     // Deformation
-    const Eigen::Matrix3d& get_F() const { return F; }
-    const Eigen::Matrix3d& get_D() const { return Deformation; }
-    const Vector6d& get_D_v() const { return D_v; }
+    const Eigen::Matrix3d& get_strain() const { return strain_gl; }
+    const Vector6d& get_strain_v() const { return D_v; }
 
     // Slip system state (indexed)
     size_t num_slip_systems() const;  // total (doubled: В±b)
@@ -97,6 +102,10 @@ public:
     const std::vector<double>& get_sp_shifts_all() const { return sp_shifts; }
     uint8_t get_last_step(size_t i) const;
     uint8_t get_new_step(size_t i) const;
+
+    long int get_random_state() const { return random_state; }
+    void set_random_state(long int seed) { random_state = seed; }
+    void reset_state();
 
     // Hardening matrix
     const Eigen::MatrixXd& get_H() const { return H; }

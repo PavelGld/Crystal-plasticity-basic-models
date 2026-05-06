@@ -2,25 +2,50 @@
 #include "tensor_utils.h"
 #include <iostream>
 #include <fstream>
+#include <algorithm>
+#include <stdexcept>
+#include <cmath>
 #include <unsupported/Eigen/MatrixFunctions>
 
 Grain::Grain(std::string info)
+    : params(std::make_shared<MaterialParams>(info))
 {
-    params = std::make_shared<MaterialParams>(info);
-
     H = params->H;
 
+    init_common();
+}
+
+Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
+    : params(p)
+{
+    H = params->H;
+
+    orient_q = orientation.normalized();
+    R_buf = orient_q.toRotationMatrix();
+    T_voigt_valid = false;
+
+    init_common();
+}
+
+void Grain::init_common()
+{
     time = 0;
     acc_def = 0;
 
     Buf.setZero();
+    Buf_v.setZero();
+    Buf_PD.setZero();
+    Buf_P.setZero();
     Wp.setZero();
     L.setZero();
-    Deformation.setZero();
+    strain_gl.setZero();
     F.setIdentity();
 
     Stress.setZero();
-    orient_q = Eigen::Quaterniond::Identity();
+    D_v.setZero();
+    Dp_v.setZero();
+    Stress_v.setZero();
+
     R_buf.setIdentity();
     omega_buf.setZero();
     dq_buf = Eigen::Quaterniond::Identity();
@@ -29,73 +54,14 @@ Grain::Grain(std::string info)
     Wp_mat_buf.setZero();
     S_buf.setZero();
 
-    D_v.setZero();
-    Dp_v.setZero();
-    Stress_v.setZero();
+    int n = 2 * params->num_slip_sys;
+    last_step.assign(n, 0);
+    new_step.assign(n, 0);
+    tc.assign(n, params->tc0);
+    shifts.assign(n, 0.0);
+    sp_shifts.assign(n, 0.0);
 
-    last_step.resize(params->num_slip_sys * 2);
-    new_step.resize(params->num_slip_sys * 2);
-
-    tc.resize(params->num_slip_sys * 2);
-    shifts.resize(params->num_slip_sys * 2);
-    sp_shifts.resize(params->num_slip_sys * 2);
-
-    for (int i = 0; i < params->num_slip_sys * 2; i++)
-    {
-        last_step[i] = 0;
-        new_step[i] = 0;
-
-        tc[i] = params->tc0;
-        shifts[i] = 0;
-        sp_shifts[i] = 0;
-    }
-
-    random_state = 0;
-}
-
-Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
-    : params(p), H(p->H)
-{
-    time = 0;
-    acc_def = 0;
-
-    Buf.setZero();
-    Wp.setZero();
-    L.setZero();
-    Deformation.setZero();
-    F.setIdentity();
-
-    Stress.setZero();
-    orient_q = orientation.normalized();
-    R_buf = orient_q.toRotationMatrix();
-    omega_buf.setZero();
-    dq_buf = Eigen::Quaterniond::Identity();
-    W_mat_buf.setZero();
-    Omega_buf.setZero();
-    Wp_mat_buf.setZero();
-    S_buf.setZero();
-
-    D_v.setZero();
-    Dp_v.setZero();
-    Stress_v.setZero();
-
-    last_step.resize(params->num_slip_sys * 2);
-    new_step.resize(params->num_slip_sys * 2);
-
-    tc.resize(params->num_slip_sys * 2);
-    shifts.resize(params->num_slip_sys * 2);
-    sp_shifts.resize(params->num_slip_sys * 2);
-
-    for (int i = 0; i < params->num_slip_sys * 2; i++)
-    {
-        last_step[i] = 0;
-        new_step[i] = 0;
-
-        tc[i] = params->tc0;
-        shifts[i] = 0;
-        sp_shifts[i] = 0;
-    }
-
+    T_voigt_valid = false;
     random_state = 0;
 }
 
@@ -179,14 +145,7 @@ void Grain::find_SS(double dT)
 { 
     int n = 2 * params->num_slip_sys;
     
-    double trD = D_v(0) + D_v(1) + D_v(2);
-    double mean = trD / 3.0;
-    double d1 = D_v(0) - mean;
-    double d2 = D_v(1) - mean;
-    double d3 = D_v(2) - mean;
-    double j2 = d1 * d1 + d2 * d2 + d3 * d3
-        + 0.5 * (D_v(3) * D_v(3) + D_v(4) * D_v(4) + D_v(5) * D_v(5));
-    double du = std::sqrt(2.0 / 3.0 * j2);
+    double du = computeDeviatoricDu();
 
     for (int i = 0; i < n; i++)
         if (last_step[i]) {
@@ -237,6 +196,7 @@ void Grain::integrate(double dt)
     {
         if (!new_step[j]) continue;
         double shift_j = sp_shifts[j];
+        shifts[j] += shift_j * dt;
         for (int i = 0; i < n; i++)
         {
             if (tc[i] < params->ts)
@@ -291,7 +251,7 @@ void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
     omega_buf *= 0.5;
 
     double angle = omega_buf.norm() * dt;
-    if (angle > 1e-14)
+    if (angle > ROTATION_ANGLE_THRESHOLD)
     {
         dq_buf = Eigen::AngleAxisd(angle, omega_buf / omega_buf.norm());
         orient_q = orient_q * dq_buf;
@@ -306,21 +266,13 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
     // Compute equivalent strain increment from Lnew (lab frame, rotation-invariant)
     Buf.noalias() = 0.5 * (Lnew + Lnew.transpose());
     tensorToVoigtInPlace(Buf, D_v);
-    double trD = D_v(0) + D_v(1) + D_v(2);
-    double mean = trD / 3.0;
-    double d1 = D_v(0) - mean;
-    double d2 = D_v(1) - mean;
-    double d3 = D_v(2) - mean;
-    double j2 = d1 * d1 + d2 * d2 + d3 * d3
-        + 0.5 * (D_v(3) * D_v(3) + D_v(4) * D_v(4) + D_v(5) * D_v(5));
-    double du = std::sqrt(2.0 / 3.0 * j2);
+    double du = computeDeviatoricDu();
     double ds = du * dt;
 
     // Adaptive sub-stepping: if strain increment exceeds ds_crit, split the step
-    constexpr double ds_crit = 1.7e-6;
     int n_substeps = 1;
-    if (ds > ds_crit) {
-        n_substeps = static_cast<int>(std::ceil(ds / ds_crit));
+    if (ds > DS_CRITICAL) {
+        n_substeps = static_cast<int>(std::ceil(ds / DS_CRITICAL));
     }
     double sub_dt = dt / n_substeps;
 
@@ -344,13 +296,13 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
         Sum_time = 0;
         elastic_buf = 0;
 
-        while (actual_dt > Sum_time + 1e-15) {
+        while (actual_dt > Sum_time + TIME_EPSILON) {
             if (check_elastic(dT))
                 Sum_time += dT;
             else {
                 double dt_plastic = dT - elastic_buf;
                 Sum_time += dT;
-                if (dt_plastic > 1e-15)
+                if (dt_plastic > TIME_EPSILON)
                     find_SS(dt_plastic);
             }
             dT = actual_dt - Sum_time;
@@ -362,9 +314,51 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
         time_done += actual_dt;
     }
 
-    Deformation.noalias() = 0.5 * (F.transpose() * F - Eigen::Matrix3d::Identity());
+    strain_gl.noalias() = 0.5 * (F.transpose() * F - Eigen::Matrix3d::Identity());
     time += dt;
     acc_def += ds;
+}
+
+double Grain::computeDeviatoricDu() const
+{
+    double trD = D_v(0) + D_v(1) + D_v(2);
+    double mean = trD / 3.0;
+    double d1 = D_v(0) - mean;
+    double d2 = D_v(1) - mean;
+    double d3 = D_v(2) - mean;
+    double j2 = d1 * d1 + d2 * d2 + d3 * d3
+        + 0.5 * (D_v(3) * D_v(3) + D_v(4) * D_v(4) + D_v(5) * D_v(5));
+    return std::sqrt(2.0 / 3.0 * j2);
+}
+
+void Grain::reset_state()
+{
+    time = 0;
+    acc_def = 0;
+    F.setIdentity();
+    strain_gl.setZero();
+    Stress.setZero();
+    Stress_v.setZero();
+    D_v.setZero();
+    Dp_v.setZero();
+    Wp.setZero();
+    L.setZero();
+    T_voigt_valid = false;
+
+    int n = 2 * params->num_slip_sys;
+    for (int i = 0; i < n; i++)
+    {
+        last_step[i] = 0;
+        new_step[i] = 0;
+        tc[i] = params->tc0;
+        shifts[i] = 0.0;
+        sp_shifts[i] = 0.0;
+    }
+
+    if (params->hard_mode == 2)
+    {
+        H = params->H;
+    }
 }
 
 double Grain::get_stress_intensity() const
