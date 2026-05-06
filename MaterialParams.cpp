@@ -3,18 +3,12 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
-
-static Eigen::Matrix<double, 6, 1> tensorToVoigt(const Eigen::Matrix3d& A) {
-    Eigen::Matrix<double, 6, 1> v;
-    v.setZero();
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j)
-            v(tensorToVoigtIndex(i, j)) += A(i, j);
-    return v;
-}
+#include <stdexcept>
 
 MaterialParams::MaterialParams(const std::string& filename) {
     std::ifstream file(filename);
+    if (!file.is_open())
+        throw std::runtime_error("Cannot open material file: " + filename);
     
     unsigned hard_mode_temp, rot_mode_temp;
     file >> hard_mode_temp >> rot_mode_temp;
