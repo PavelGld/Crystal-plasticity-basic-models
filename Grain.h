@@ -48,7 +48,7 @@ class Grain
     std::vector<double> shifts;
     std::vector<double> sp_shifts;
 
-    double acc_def, time;  // grain-level state (used when modeling a single grain)
+    double acc_def, sim_time;  // grain-level state (used when modeling a single grain)
     double volume = 1.0;
 
     static constexpr double ROTATION_ANGLE_THRESHOLD = 1e-14;
@@ -86,7 +86,7 @@ public:
 
     // State variables
     double get_acc_def() const { return acc_def; }
-    double get_time() const { return time; }
+    double get_time() const { return sim_time; }
 
     // Deformation
     const Eigen::Matrix3d& get_strain() const { return strain_gl; }

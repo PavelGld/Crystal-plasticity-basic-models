@@ -72,7 +72,7 @@ RVE::RVE(const std::string& config_file, unsigned ms)
     W_av.setZero();
     Dp_av.setZero();
     F_av.setIdentity();
-    time = 0;
+    sim_time = 0;
     acc_strain = 0;
 
     stress_av_old_v.setZero();
@@ -104,7 +104,7 @@ void RVE::reset()
     W_av.setZero();
     Dp_av.setZero();
     F_av.setIdentity();
-    time = 0;
+    sim_time = 0;
     acc_strain = 0;
 
     stress_av_old_v.setZero();
@@ -149,7 +149,7 @@ void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {
     double D_eq = std::sqrt(2.0 / 3.0 * D_buf.squaredNorm());
     acc_strain += D_eq * dt;
 
-    time += dt;
+    sim_time += dt;
     
     exp_buf.noalias() = dt * L;
     F_av.noalias() = exp_buf.exp() * F_av;
@@ -236,7 +236,7 @@ void RVE::Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt) {
     Dp_av(0,2) = Dp_av(2,0) = Dp_v_buf(4) / 2;
     Dp_av(0,1) = Dp_av(1,0) = Dp_v_buf(5) / 2;
     
-    time += dt;
+    sim_time += dt;
     
     exp_buf.noalias() = dt * L_buf;
     F_av.noalias() = exp_buf.exp() * F_av;

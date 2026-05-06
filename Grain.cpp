@@ -29,7 +29,7 @@ Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
 
 void Grain::init_common()
 {
-    time = 0;
+    sim_time = 0;
     acc_def = 0;
 
     Buf.setZero();
@@ -316,7 +316,7 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
     }
 
     strain_gl.noalias() = 0.5 * (F.transpose() * F - Eigen::Matrix3d::Identity());
-    time += dt;
+    sim_time += dt;
     acc_def += ds;
 }
 
@@ -334,7 +334,7 @@ double Grain::computeDeviatoricDu() const
 
 void Grain::reset_state()
 {
-    time = 0;
+    sim_time = 0;
     acc_def = 0;
     F.setIdentity();
     strain_gl.setZero();

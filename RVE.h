@@ -18,7 +18,7 @@ class RVE {
     Eigen::Matrix3d Dp_av;
     Eigen::Matrix3d F_av;
 
-    double time;
+    double sim_time;
     double acc_strain;
     double total_volume;
     std::string config_path;
@@ -54,7 +54,7 @@ public:
     Eigen::Matrix3d get_spin() const { return W_av; }
     Eigen::Matrix3d get_plastic_strain_rate() const { return Dp_av; }
     Eigen::Matrix3d get_deformation_gradient() const { return F_av; }
-    double get_time() const { return time; }
+    double get_time() const { return sim_time; }
     double get_accumulated_strain() const { return acc_strain; }
     double get_stress_intensity() const;  // von Mises equivalent stress
 
