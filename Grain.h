@@ -5,12 +5,11 @@
 #include <string>
 #include <memory>
 #include <cstdint>
+#include "tensor_utils.h"
 #include "MaterialParams.h"
 
 class Grain
 {
-	using Vector6d = Eigen::Matrix<double, 6, 1>;
-	using Matrix6d = Eigen::Matrix<double, 6, 6>;
 
 	MaterialParamsPtr params;
 
@@ -69,7 +68,7 @@ public:
 	Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation);
 	void Simulate_Step(double dt, const Eigen::Matrix3d& Lnew);
 
-	Grain::Vector6d get_stress() const;
+	Vector6d get_stress() const;
 
 	Eigen::Quaterniond get_orientation() const;
 

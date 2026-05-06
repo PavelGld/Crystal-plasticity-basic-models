@@ -3,10 +3,9 @@
 #include <Eigen/Geometry>
 #include <vector>
 #include <memory>
+#include "tensor_utils.h"
 
 struct MaterialParams {
-    using Vector6d = Eigen::Matrix<double, 6, 1>;
-    using Matrix6d = Eigen::Matrix<double, 6, 6>;
 
     std::vector<Eigen::Matrix3d> M;
     std::vector<Eigen::Matrix3d> Wpm;

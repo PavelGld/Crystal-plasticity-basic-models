@@ -4,11 +4,10 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include "tensor_utils.h"
 #include "Grain.h"
 
 class RVE {
-    using Vector6d = Eigen::Matrix<double, 6, 1>;
-    using Matrix6d = Eigen::Matrix<double, 6, 6>;
 
     std::vector<MaterialParamsPtr> materials;
     

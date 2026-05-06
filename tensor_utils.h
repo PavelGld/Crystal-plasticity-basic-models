@@ -2,6 +2,10 @@
 #include <Eigen/Dense>
 #include <utility>
 
+// Общие типы для Voigt-нотации (6-мерное пространство)
+using Vector6d = Eigen::Matrix<double, 6, 1>;
+using Matrix6d = Eigen::Matrix<double, 6, 6>;
+
 // Voigt mapping: tensor (i,j) -> Voigt index
 //   0=00, 1=11, 2=22, 3=23/32, 4=02/20, 5=01/10
 inline int tensorToVoigtIndex(int i, int j) {
