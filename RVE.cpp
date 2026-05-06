@@ -3,44 +3,92 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <cstdlib>
+#include <stdexcept>
 #include <unsupported/Eigen/MatrixFunctions>
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
-RVE::RVE(const std::string& config_file) {
+static void build_rve_from_config(RVE& rve, const std::string& config_file)
+{
     std::ifstream file(config_file);
+    if (!file.is_open())
+        throw std::runtime_error("Cannot open RVE config file: " + config_file);
 
     int num_materials;
     file >> num_materials;
 
-    materials.resize(num_materials);
+    rve.materials.resize(num_materials);
+    rve.grains.clear();
     for (int m = 0; m < num_materials; m++) {
         std::string mat_file;
         int num_grains_of_material;
         file >> mat_file >> num_grains_of_material;
 
         auto mat = std::make_shared<MaterialParams>(mat_file);
-        materials[m] = mat;
+        rve.materials[m] = mat;
+
+        unsigned seed = (rve.master_seed != 0) ? static_cast<unsigned>(std::rand()) : 0;
 
         for (int g = 0; g < num_grains_of_material; g++) {
             Eigen::Quaterniond random_q = Eigen::Quaterniond::UnitRandom();
-            grains.emplace_back(mat, random_q);
+            rve.grains.emplace_back(mat, random_q);
+            if (rve.master_seed != 0) {
+                unsigned grain_seed = static_cast<unsigned>(std::rand());
+                rve.grains.back().set_random_state(grain_seed);
+                std::srand(grain_seed);
+            }
         }
+
+        if (rve.master_seed != 0)
+            std::srand(seed);
     }
-    
+
+    rve.total_volume = 0;
+    for (const auto& grain : rve.grains) {
+        rve.total_volume += grain.get_volume();
+    }
+}
+
+RVE::RVE(const std::string& config_file, unsigned ms)
+    : config_path(config_file), master_seed(ms)
+{
+    if (master_seed != 0)
+        std::srand(master_seed);
+
+    build_rve_from_config(*this, config_file);
+
     stress_av.setZero();
     W_av.setZero();
     Dp_av.setZero();
     F_av.setIdentity();
     time = 0;
     acc_strain = 0;
-    
-    total_volume = 0;
-    for (const auto& grain : grains) {
-        total_volume += grain.get_volume();
-    }
+
+    stress_av_old_v.setZero();
+    Dp_av_old_v.setZero();
+    W_av_old.setZero();
+}
+
+void RVE::reset()
+{
+    if (master_seed != 0)
+        std::srand(master_seed);
+
+    build_rve_from_config(*this, config_path);
+
+    stress_av.setZero();
+    W_av.setZero();
+    Dp_av.setZero();
+    F_av.setIdentity();
+    time = 0;
+    acc_strain = 0;
+
+    stress_av_old_v.setZero();
+    Dp_av_old_v.setZero();
+    W_av_old.setZero();
 }
 
 void RVE::Simulate_Step(double dt, const Eigen::Matrix3d& L) {

@@ -21,6 +21,8 @@ class RVE {
     double time;
     double acc_strain;
     double total_volume;
+    std::string config_path;
+    unsigned master_seed = 0;
 
     // Сохранённые значения с прошлого шага
     Vector6d stress_av_old_v = Vector6d::Zero();
@@ -42,8 +44,9 @@ class RVE {
     mutable Eigen::PartialPivLU<Matrix6d> lu_buf;
 
 public:
-    explicit RVE(const std::string& config_file);
+    explicit RVE(const std::string& config_file, unsigned master_seed = 0);
     
+    void reset();
     void Simulate_Step(double dt, const Eigen::Matrix3d& L);
     void Simulate_Step_Soft(double dt, const Eigen::Matrix3d& dS_dt);
     
@@ -65,4 +68,6 @@ public:
     Grain& get_grain(size_t i) { return grains[i]; }
     unsigned get_rot_mode() const { return materials.empty() ? 0 : materials[0]->rot_mode; }
     double get_total_volume() const { return total_volume; }
+    unsigned get_master_seed() const { return master_seed; }
+    void set_master_seed(unsigned seed) { master_seed = seed; }
 };
