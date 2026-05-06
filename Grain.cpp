@@ -113,7 +113,7 @@ bool Grain::check_elastic(double dt)
         }
         else
         {
-            double buft = 1e300;
+            double buft = dt;
             for (int i = 0; i < n; i++)
             {
                 double ai = Buf_PD.dot(params->Ms_v[i]);

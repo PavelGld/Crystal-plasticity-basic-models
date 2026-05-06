@@ -1,7 +1,6 @@
 #pragma once
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
-#include <unsupported/Eigen/CXX11/Tensor>
 #include <string>
 #include <memory>
 #include <cstdint>
