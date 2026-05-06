@@ -23,6 +23,7 @@ class RVE {
     double total_volume;
     std::string config_path;
     unsigned master_seed = 0;
+    std::vector<int> grains_per_mat;  // saved for reset() without re-reading config
 
     // Сохранённые значения с прошлого шага
     Vector6d stress_av_old_v = Vector6d::Zero();

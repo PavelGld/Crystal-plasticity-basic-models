@@ -55,7 +55,6 @@ RVE::RVE(const std::string& config_file, unsigned ms)
 
     int num_materials;
     std::vector<std::string> mat_files;
-    std::vector<int> grains_per_mat;
     read_rve_config(config_file, num_materials, mat_files, grains_per_mat);
 
     materials.resize(num_materials);
@@ -84,15 +83,6 @@ void RVE::reset()
 {
     if (master_seed != 0)
         std::srand(master_seed);
-
-    int num_materials;
-    std::vector<std::string> mat_files;
-    std::vector<int> grains_per_mat;
-    read_rve_config(config_path, num_materials, mat_files, grains_per_mat);
-
-    materials.resize(num_materials);
-    for (int m = 0; m < num_materials; m++)
-        materials[m] = std::make_shared<MaterialParams>(mat_files[m]);
 
     build_grains_from_config(materials, grains, grains_per_mat, master_seed);
 
