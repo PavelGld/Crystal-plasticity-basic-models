@@ -18,6 +18,7 @@ class Grain
     mutable Vector6d Buf_v;
     mutable Vector6d Buf_PD;
     mutable Matrix6d Buf_P;
+    mutable Vector6d strain_gl_v_buf;
 
     Eigen::Matrix3d Wp;
     Eigen::Matrix3d L;
@@ -73,7 +74,7 @@ public:
     Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation);
     void Simulate_Step(double dt, const Eigen::Matrix3d& Lnew);
 
-    Vector6d get_stress() const;
+    const Vector6d& get_stress() const;
 
     Eigen::Quaterniond get_orientation() const;
 
@@ -89,7 +90,10 @@ public:
 
     // Deformation
     const Eigen::Matrix3d& get_strain() const { return strain_gl; }
-    const Vector6d& get_strain_v() const { return D_v; }
+    const Vector6d& get_strain_v() const {
+        tensorToVoigtInPlace(strain_gl, strain_gl_v_buf);
+        return strain_gl_v_buf;
+    }
 
     // Slip system state (indexed)
     size_t num_slip_systems() const;  // total (doubled: В±b)

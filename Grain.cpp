@@ -36,6 +36,7 @@ void Grain::init_common()
     Buf_v.setZero();
     Buf_PD.setZero();
     Buf_P.setZero();
+    strain_gl_v_buf.setZero();
     Wp.setZero();
     L.setZero();
     strain_gl.setZero();
@@ -396,7 +397,7 @@ uint8_t Grain::get_new_step(size_t i) const {
     return new_step[i];
 }
 
-Eigen::Matrix<double, 6, 1> Grain::get_stress() const
+const Vector6d& Grain::get_stress() const
 {
     return Stress_v;
 }
