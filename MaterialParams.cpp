@@ -79,13 +79,11 @@ MaterialParams::MaterialParams(const std::string& filename) {
     P_v(3,3) = P_v(4,4) = P_v(5,5) = c3;
 
     H.resize(num_slyde_sys * 2, num_slyde_sys * 2);
-    H.setZero();
 
     if (hard_mode == 2) {
         file >> A >> q >> h0 >> ts >> alfa;
-        for (int i = 0; i < num_slyde_sys * 2; i++)
-            for (int j = 0; j < num_slyde_sys * 2; j++)
-                H(j, i) = (i == j) ? A : A * q;
+        H.setConstant(A * q);
+        H.diagonal().setConstant(A);
     }
 
     file >> tc0;

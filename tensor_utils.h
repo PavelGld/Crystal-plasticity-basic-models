@@ -41,9 +41,4 @@ inline void voigtToTensorInPlace(const Eigen::Matrix<double, 6, 1>& v, Eigen::Ma
     A(0, 1) = A(1, 0) = v(5) * 0.5;
 }
 
-// Tensor (3x3) -> 9-component vector (row-major)
-inline void tensorTo9dInPlace(const Eigen::Matrix3d& A, Eigen::Matrix<double, 9, 1>& v) {
-    v(0) = A(0, 0); v(1) = A(0, 1); v(2) = A(0, 2);
-    v(3) = A(1, 0); v(4) = A(1, 1); v(5) = A(1, 2);
-    v(6) = A(2, 0); v(7) = A(2, 1); v(8) = A(2, 2);
-}
+
