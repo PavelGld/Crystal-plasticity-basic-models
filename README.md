@@ -85,7 +85,7 @@ Brass-type текстура `{110}<112>`:
 Build → Build Solution (Release x64)
 ```
 
-Зависимости: **Eigen 3.4+** (путь в проекте: `D:\eigen-3.4.0`)
+Зависимости: **Eigen 3.4+** (путь в проекте: `D:\eigen-3.4.0`), **doctest** (`.h` в корне проекта)
 
 ### Запуск основного проекта
 
@@ -102,7 +102,6 @@ EigenProject.exe          # работа с моделью (EigenProject.cpp)
 cl /EHsc /O2 /openmp /I D:\eigen-3.4.0 rotation_validation.cpp Grain.cpp RVE.cpp MaterialParams.cpp
 
 rotation_validation.exe           # генерация текстур (4 режима нагружения)
-rotation_validation.exe --tests   # unit-тесты
 ```
 
 ### Автоматизированные тесты
@@ -196,6 +195,9 @@ EigenProject/
 ├── EigenProject.cpp              — main() проекта (работа с моделью)
 ├── grain.txt                     — FCC материал (12 систем {111}<110>)
 ├── rve_validation.txt            — конфиг RVE (1000 зёрен)
+├── dochtet.h                    — фреймворк для автотестов
+├── grain_test_shear.txt          — материал для теста поворота (rot_mode=1)
+├── tests.cpp                     — автоматизированные тесты (5 тестов)
 │
 ├── rotation_validation_test_results/
 │   ├── rotation_validation.cpp   — валидация: unit-тесты + текстуры
@@ -238,19 +240,21 @@ H_ij = H_ii · q   (i ≠ j)
 | 2 | Порядок кватернионов `dq*q` вместо `q*dq` | Неверное направление вращения |
 | 3 | `sp_shifts` не занулялись при упругом шаге | Мусор в пластическом спине |
 | 4 | `check_elastic` не возвращал значение | Undefined behavior |
+| 5 | `orient_q` не инициализирован в `init_common()` | Случайный поворот зерна при старте |
 
 Подробности в [CONTEXT.md](CONTEXT.md).
 
 ## Зависимости
 
 - [Eigen](https://eigen.tuxfamily.org/) 3.4+
+- [doctest](https://github.com/doctest/doctest) (`.h` в корне, для автотестов)
 - C++14
 - OpenMP (опционально)
 - MATLAB + MTEX (для валидации текстур)
 
 ## Лицензия
 
-MIT License
+Apache License, Version 2.0
 
 ## Автор
 

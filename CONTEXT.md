@@ -17,6 +17,9 @@ EigenProject/
 ├── EigenProject.cpp              — main() проекта (работа с моделью)
 ├── grain.txt                     — параметры материала (FCC, 12 систем {111}<110>)
 ├── rve_validation.txt            — конфиг RVE (1000 зёрен)
+├── dochtet.h                     — фреймворк doctest для автотестов
+├── tests.cpp                     — автоматизированные тесты (5 тестов, 8 checks)
+├── grain_test_shear.txt          — материал с rot_mode=1 для теста поворота
 │
 ├── rotation_validation_test_results/
 │   ├── rotation_validation.cpp   — файл валидации: unit-тесты + генерация текстур
@@ -163,6 +166,7 @@ orient_q = orient_q * dq   // СПРАВА (omega в КСК)
 5. Неверный аргумент `check_elastic(dT + Sum_time)` → `check_elastic(dT)`.
 6. `rot_mode` перенесён в `MaterialParams` (единый источник из файла материала).
 7. Const-корректность: `mutable` для буферов в const-методах.
+8. **orient_q не инициализировался** в `init_common()` — `Eigen::Quaterniond` default-constructor оставляет коэффициенты неинициализированными. Исправлено в тестовом коммите (добавлен `orient_q = Quaterniond::Identity()`).
 
 ## Валидация текстур
 
@@ -176,6 +180,18 @@ orient_q = orient_q * dq   // СПРАВА (omega в КСК)
 | Plane Strain | diag(0, -ε̇, ε̇) | Brass-type `{110}<112>` |
 
 Результаты: все 4 типа текстур совпали с литературными данными (проверка через MTEX pole figures).
+
+## Автоматизированные тесты
+
+`tests.cpp` — автономные тесты с фреймворком doctest (компилируются отдельно, не входят в .sln).
+
+| Тест | Что проверяет |
+|---|---|
+| `no_rotation` | При симметричном L ориентация не меняется (`grain.txt`, rot_mode=2) |
+| `simple_shear_rotation` | Поворот на ожидаемый угол γ·t/2 (`grain_test_shear.txt`, rot_mode=1) |
+| `RVE_basic` | RVE из 1000 зёрен без креша |
+| `hard_loading` | 3 точки ε→σ на кривой hard loading (допуск 5%) |
+| `uniaxial_tension` | 2 точки ε→σ на кривой растяжения (допуск 5%) |
 
 ## Формат входного файла материала
 
