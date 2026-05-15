@@ -46,6 +46,7 @@ void Grain::init_common()
     Dp_v.setZero();
     Stress_v.setZero();
 
+    orient_q = Eigen::Quaterniond::Identity();
     R_buf.setIdentity();
     omega_buf.setZero();
     dq_buf = Eigen::Quaterniond::Identity();

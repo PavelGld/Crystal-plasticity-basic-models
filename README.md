@@ -105,6 +105,21 @@ rotation_validation.exe           # генерация текстур (4 реж�
 rotation_validation.exe --tests   # unit-тесты
 ```
 
+### Автоматизированные тесты
+
+`tests.cpp` — автономные тесты с фреймворком [doctest](https://github.com/doctest/doctest) (`.h` в корне проекта):
+
+```bash
+# Из папки проекта:
+cl /EHsc /O2 /openmp /I D:\eigen-3.4.0 /D_ENABLE_EXTENDED_ALIGNED_STORAGE tests.cpp Grain.cpp RVE.cpp MaterialParams.cpp
+
+tests.exe                         # запуск всех тестов
+tests.exe -s                      # с выводом успешных проверок
+tests.exe --test-case="no rotation"  # фильтр по имени теста
+```
+
+Тесты: проверка поворота зёрен, базовой функциональности RVE и верификация кривых напряжение-деформация (5 тестов, 8 checks, допуск 5%).
+
 ### Построение полюсных фигур (MATLAB + MTEX)
 
 ```matlab

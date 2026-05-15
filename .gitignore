@@ -7,3 +7,7 @@ Crystallite.cpp
 Crystallite.h
 x64/
 nul
+*.obj
+*.exe
+tests_output.txt
+tests_error.txt
