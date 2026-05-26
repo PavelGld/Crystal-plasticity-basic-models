@@ -24,6 +24,7 @@ struct MaterialParams {
 
     Eigen::MatrixXd H;
     double A = 0, q = 0, h0 = 0, ts = 1e30, alfa = 0;
+    double iso_a = 0, iso_b = 0;
 
     explicit MaterialParams(const std::string& filename);
 };

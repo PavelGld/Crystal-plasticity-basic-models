@@ -79,6 +79,9 @@ MaterialParams::MaterialParams(const std::string& filename) {
         H.setConstant(A * q);
         H.diagonal().setConstant(A);
     }
+    else if (hard_mode == 1) {
+        file >> iso_a >> iso_b;
+    }
 
     file >> tc0;
     file >> strain_rate_infl;

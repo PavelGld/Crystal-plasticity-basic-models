@@ -198,10 +198,13 @@ void Grain::integrate(double dt)
         if (!new_step[j]) continue;
         double shift_j = sp_shifts[j];
         shifts[j] += shift_j * dt;
-        for (int i = 0; i < n; i++)
-        {
-            if (tc[i] < params->ts)
-                tc[i] += H(i, j) * shift_j * dt;
+
+        if (params->hard_mode != 1) {
+            for (int i = 0; i < n; i++)
+            {
+                if (tc[i] < params->ts)
+                    tc[i] += H(i, j) * shift_j * dt;
+            }
         }
     }
 
@@ -218,6 +221,15 @@ void Grain::integrate(double dt)
         }
         H.noalias() = params->q * Eigen::VectorXd::Ones(n) * H_buf.transpose();
         H.diagonal() = H_buf;
+    }
+    else if (params->hard_mode == 1)
+    {
+        double total_gamma = 0.0;
+        for (int i = 0; i < n; i++)
+            total_gamma += shifts[i];
+        double new_tc = params->tc0 + params->iso_a * std::pow(total_gamma, params->iso_b);
+        for (int i = 0; i < n; i++)
+            tc[i] = new_tc;
     }
 
     if (params->rot_mode != 0)

@@ -114,3 +114,26 @@ TEST_CASE("uniaxial tension") {
         }
     }
 }
+
+TEST_CASE("isotropic hardening") {
+    Grain gr("grain_test_iso.txt");
+
+    double eps_dot_local = 0.017;
+    Eigen::Matrix3d L = Eigen::Matrix3d::Zero();
+    L(0, 0) = -0.5 * eps_dot_local;
+    L(1, 1) = -0.5 * eps_dot_local;
+    L(2, 2) = eps_dot_local;
+
+    double tc0 = gr.get_tc(0);
+    double dt_local = 1e-3;
+    int steps = 1000;
+    for (int i = 0; i < steps; i++)
+        gr.Simulate_Step(dt_local, L);
+
+    double tc_after = gr.get_tc(0);
+    CHECK(tc_after > tc0);
+
+    size_t n = gr.num_slip_systems();
+    for (size_t i = 1; i < n; i++)
+        CHECK(gr.get_tc(i) == doctest::Approx(tc_after));
+}
