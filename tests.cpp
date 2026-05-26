@@ -93,6 +93,33 @@ TEST_CASE("hard loading") {
     }
 }
 
+TEST_CASE("isotropic hard loading") {
+    RVE rve("rve_validation_iso.txt");
+    Eigen::Matrix3d L = make_uniaxial_tension_L();
+    Eigen::Matrix3d L1 = make_plane_strain_L();
+
+    struct { double strain; double stress_mpa; } points[] = {
+        {0.0100011, 30.4151},
+        {0.0910006, 52.8078},
+        {0.3, 89.5793}
+    };
+    size_t cp_idx = 0;
+
+    while (cp_idx < 3 && rve.get_accumulated_strain() < 0.3) {
+        if (rve.get_accumulated_strain() < 0.09)
+            rve.Simulate_Step(dt, L);
+        else
+            rve.Simulate_Step(dt, L1);
+
+        double acc = rve.get_accumulated_strain();
+        if (acc >= points[cp_idx].strain) {
+            double actual = rve.get_stress_intensity() / 1e6;
+            CHECK(actual == doctest::Approx(points[cp_idx].stress_mpa).epsilon(0.05));
+            cp_idx++;
+        }
+    }
+}
+
 TEST_CASE("uniaxial tension") {
     RVE rve("rve_validation.txt");
     Eigen::Matrix3d L = make_uniaxial_tension_L();
