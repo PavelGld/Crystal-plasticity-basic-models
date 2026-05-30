@@ -189,6 +189,7 @@ dS_dt(0,0) = 1e8;  // Па/с
 
 rve.Simulate_Step_Soft(dt, dS_dt);
 ```
+(Мягкое нагружение ещё в разработке)
 
 ## Структура проекта
 
@@ -217,34 +218,136 @@ EigenProject/
 └── README.md                     — этот файл
 ```
 
-## Теория
+## Математическая постановка
 
-### Скорости сдвига (закон Хатчинсона)
+### Мезоуровень — одиночное зерно (класс Grain)
 
-```
-γ̇^α = γ̇_0 · D_eq · |τ^α / tc^α|^n
-```
+#### 1. Кинематика
 
-### Упрочнение Kocks-Mecking (hard_mode=2)
+Градиент скорости раскладывается на симметричную и антисимметричную части:
 
-```
-H_ii = A · h0 · |1 - tc^i / ts|^α
-H_ij = H_ii · q   (i ≠ j)
-```
+$$\mathbf{L} = \mathbf{D} + \mathbf{W}, \qquad \mathbf{D} = \frac{1}{2}(\mathbf{L} + \mathbf{L}^T), \qquad \mathbf{W} = \frac{1}{2}(\mathbf{L} - \mathbf{L}^T)$$
 
-### Изотропное упрочнение (hard_mode=1)
+Градиент деформации обновляется: $\mathbf{F}(t + dt) = \exp(dt \cdot \mathbf{L}) \cdot \mathbf{F}(t)$
 
-```
-tc_i = tc0 + a · (Σ_α |γ^α|)^b   (одинаково для всех систем)
-```
+Для малых $||dt \cdot \mathbf{L}|| < 10^{-2}$ — быстрое 3-членное разложение Тейлора $\exp(\mathbf{A}) \approx \mathbf{I} + \mathbf{A} + \mathbf{A}^2/2!$. Для крупных шагов — полная `expm()` из Eigen.
 
-### Ротация решётки
+#### 2. Системы скольжения
 
-**Материальный поворот (rot_mode=1):** `Ω = W`
+Каждая система скольжения α задаётся единичным направлением сдвига $\mathbf{\bar{b}}^\alpha$ и нормалью к плоскости скольжения $\mathbf{\bar{n}}^\alpha$ (в КСК). Тензор ориентации (Шмида):
 
-**Тейлор (rot_mode=2):** `Ω = W - Wp`, где `Wp = Σ γ̇^α · Wpm^α`
+$$\mathbf{M}^\alpha = \mathbf{\bar{b}}^\alpha \otimes \mathbf{\bar{n}}^\alpha$$
 
-Обновление кватерниона: `q(t+dt) = q(t) · dq(ω·dt)` (умножение справа, ω в КСК)
+Симметричная и антисимметричная части:
+
+$$\mathbf{M}_s^\alpha = \frac{1}{2}(\mathbf{M}^\alpha + \mathbf{M}^{\alpha T}), \qquad \mathbf{W}_{pm}^\alpha = \frac{1}{2}(\mathbf{M}^\alpha - \mathbf{M}^{\alpha T})$$
+
+Системы удваиваются: для каждого $\mathbf{\bar{b}}^\alpha$ добавляется $-\mathbf{\bar{b}}^\alpha$.
+
+#### 3. Упругость (закон Гука в КСК)
+
+$$\dot{\boldsymbol{\sigma}} = \mathbf{P}{:}(\mathbf{D} - \mathbf{D}^p)$$
+
+где $\mathbf{P}$ — тензор упругих модулей кубического кристалла: $P_{iiii} = C_{11}$, $P_{iijj} = C_{12}$, $P_{ijij} = C_{44}$ ($i \neq j$).
+
+В нотации Фойгта используется 6-мерное представление: напряжения $\boldsymbol{\sigma}_v = [\sigma_{11}, \sigma_{22}, \sigma_{33}, \sigma_{23}, \sigma_{13}, \sigma_{12}]$, деформации — в инженерной нотации (сдвиговые компоненты удвоены).
+
+#### 4. Вязкопластический закон (Хатчинсон)
+
+Приведённое напряжение на системе α: $\tau^\alpha = \boldsymbol{\sigma}{:}\mathbf{M}_s^\alpha$
+
+Скорость сдвига:
+
+$$\dot{\gamma}^\alpha = \dot{\gamma}_0 \cdot D_{eq} \cdot \left|\frac{\tau^\alpha}{\tau_c^\alpha}\right|^n$$
+
+где $D_{eq} = \sqrt{\frac{2}{3} \mathrm{dev}(\mathbf{D}){:}\mathrm{dev}(\mathbf{D})}$ — эквивалентная скорость деформации, $n$ — показатель скоростного упрочнения.
+
+Скорость пластической деформации:
+
+$$\mathbf{D}^p = \sum_{\alpha} \dot{\gamma}^\alpha \mathbf{M}_s^\alpha$$
+
+Активные системы скольжения: $\tau^\alpha > \tau_c^\alpha$.
+
+#### 5. Упрочнение
+
+**Без упрочнения (hard_mode = 0):** $\tau_c^\alpha(t) = \tau_{c0}$
+
+**Изотропное (hard_mode = 1):**
+
+$$\tau_c(t) = \tau_{c0} + a \cdot \left(\sum_{\alpha} |\gamma^\alpha|\right)^b, \quad \forall \alpha$$
+
+**Kocks-Mecking (hard_mode = 2):**
+
+$$\dot{\tau}_c^\alpha = \sum_{\beta} H_{\alpha\beta} \cdot |\dot{\gamma}^\beta|$$
+
+$$H_{ii} = A \cdot \theta_0 \cdot \left|1 - \frac{\tau_c^i}{\tau_s}\right|^\alpha, \qquad H_{ij} = q \cdot H_{ii} \quad (i \neq j)$$
+
+где $\tau_s$ — напряжение насыщения, $\theta_0 = h_0 / \tau_{c0}$.
+
+#### 6. Ротация кристаллической решётки
+
+Ориентация решётки описывается кватернионом $\mathbf{q}$: вращение из ЛСК в КСК — $\mathbf{R} = \mathbf{R}(\mathbf{q})$.
+
+Спин решётки $\boldsymbol{\Omega}$:
+
+* **Материальный поворот (rot_mode = 1, Mandel):** $\boldsymbol{\Omega} = \mathbf{W}$
+* **Стеснённый поворот (rot_mode = 2, Taylor):** $\boldsymbol{\Omega} = \mathbf{W} - \mathbf{W}^p$
+
+Пластический спин:
+
+$$\mathbf{W}^p = \sum_{\alpha} \dot{\gamma}^\alpha \mathbf{W}_{pm}^\alpha$$
+
+Обновление кватерниона ($\boldsymbol{\omega}$ в КСК):
+
+$$\boldsymbol{\omega} = \frac{1}{2}[\Omega_{32}-\Omega_{23},\; \Omega_{13}-\Omega_{31},\; \Omega_{21}-\Omega_{12}]^T$$
+
+$$\mathbf{q}(t+dt) = \mathbf{q}(t) \cdot \delta\mathbf{q}(\boldsymbol{\omega} \cdot dt)$$
+
+#### 7. Упругая проверка и адаптивное подшагивание
+
+На каждом шаге проверяется критерий Треска: ${}^*\tau^\alpha \leq \tau_c^\alpha$. Если какая-либо система выходит за предел — определяется момент входа в пластичность и шаг дробится на упругую и пластическую части.
+
+Подшагивание по деформации: если $D_{eq} \cdot dt > \Delta s_{crit}$, шаг разбивается на $n_{sub} = \lceil D_{eq} \cdot dt / \Delta s_{crit} \rceil$ подшагов.
+
+---
+
+### Макроуровень — RVE (класс RVE)
+
+#### 1. Гипотеза Тейлора — Фойгта
+
+Все зёрна испытывают одинаковый градиент скорости (жёсткое нагружение):
+
+$$\mathbf{L}_g = \mathbf{L}_{RVE} \quad \forall g$$
+
+#### 2. Гомогенизация (правило смесей)
+
+Средние напряжения:
+
+$$\bar{\boldsymbol{\sigma}} = \sum_{g=1}^{N} w_g \cdot \boldsymbol{\sigma}_g(\mathbf{L}), \qquad w_g = \frac{V_g}{V_{total}}$$
+
+Средняя скорость пластической деформации:
+
+$$\bar{\mathbf{D}}^p = \sum_{g=1}^{N} w_g \cdot \mathbf{D}^p_g$$
+
+Накопленная эквивалентная деформация:
+
+$$\varepsilon_{acc} = \int_0^t D_{eq}(\tau) \, d\tau, \qquad D_{eq} = \sqrt{\frac{2}{3} \mathrm{dev}(\mathbf{D}){:}\mathrm{dev}(\mathbf{D})}$$
+
+#### 3. Мягкое нагружение (Simulate_Step_Soft)
+
+Задана скорость изменения напряжений $\dot{\bar{\boldsymbol{\sigma}}}$. Вычисляется $\mathbf{D}$ из:
+
+$$\mathbf{D} = \bar{\mathbf{P}}^{-1}{:}\dot{\bar{\boldsymbol{\sigma}}} + \bar{\mathbf{D}}^p_{\text{prev}}$$
+
+$$\mathbf{L} = \mathbf{D} + \bar{\mathbf{W}}_{\text{prev}}$$
+
+где $\bar{\mathbf{P}}$ — осреднённая упругость RVE в ЛСК:
+
+$$\bar{\mathbf{P}} = \sum_{g=1}^{N} w_g \cdot \mathbf{P}_g^{lab}$$
+
+#### 4. Интеграция для Abaqus VUMAT
+
+*В разработке.* Версия для Abaqus/Explicit VUMAT будет опубликована в ветке `vumat_implementation`.
 
 ## Исправленные баги
 
@@ -272,4 +375,4 @@ Apache License, Version 2.0
 
 ## Автор
 
-Pavel (OpenSource project)
+Pavel Gladkikh
