@@ -164,3 +164,19 @@ TEST_CASE("isotropic hardening") {
     for (size_t i = 1; i < n; i++)
         CHECK(gr.get_tc(i) == doctest::Approx(tc_after));
 }
+
+TEST_CASE("integ_mode parsing") {
+    MaterialParams p_exp("grain.txt");
+    CHECK(p_exp.integ_mode == 0);
+
+    MaterialParams p_imp("grain_implicit.txt");
+    CHECK(p_imp.integ_mode == 1);
+
+    REQUIRE(p_imp.MsE_v.size() == p_imp.Ms_v.size());
+    for (size_t i = 0; i < p_imp.Ms_v.size(); i++) {
+        CHECK(p_imp.MsE_v[i](0) == doctest::Approx(p_imp.Ms_v[i](0)));
+        CHECK(p_imp.MsE_v[i](3) == doctest::Approx(2.0 * p_imp.Ms_v[i](3)));
+        CHECK(p_imp.MsE_v[i](4) == doctest::Approx(2.0 * p_imp.Ms_v[i](4)));
+        CHECK(p_imp.MsE_v[i](5) == doctest::Approx(2.0 * p_imp.Ms_v[i](5)));
+    }
+}

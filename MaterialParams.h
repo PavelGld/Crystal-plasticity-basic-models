@@ -10,6 +10,7 @@ struct MaterialParams {
     std::vector<Eigen::Matrix3d> M;
     std::vector<Eigen::Matrix3d> Wpm;
     std::vector<Vector6d> Ms_v;
+    std::vector<Vector6d> MsE_v;   // симметричная часть в инженерной нотации (сдвиги ×2)
     int num_slip_sys;
 
     Matrix6d P_v;
@@ -17,6 +18,7 @@ struct MaterialParams {
     // Режимы модели (считываются из файла материала)
     unsigned hard_mode;
     unsigned rot_mode;
+    unsigned integ_mode = 0;       // 0=явная схема, 1=неявная (Newton-Raphson)
 
     double tc0;
     double strain_rate_infl;

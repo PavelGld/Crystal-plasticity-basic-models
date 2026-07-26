@@ -20,6 +20,7 @@ MaterialParams::MaterialParams(const std::string& filename) {
     M.resize(num_slip_sys * 2);
     Wpm.resize(num_slip_sys * 2);
     Ms_v.resize(num_slip_sys * 2);
+    MsE_v.resize(num_slip_sys * 2);
 
     for (int i = 0; i < num_slip_sys; i++) {
         for (int j = 0; j < 3; j++) file >> b[j];
@@ -46,6 +47,8 @@ MaterialParams::MaterialParams(const std::string& filename) {
         Ms_v[i*2](3) = Ms(1, 2);  // тензорная компонента (без ×2)
         Ms_v[i*2](4) = Ms(0, 2);  // чтобы σ_v · Ms_v = σ : Ms
         Ms_v[i*2](5) = Ms(0, 1);
+        MsE_v[i*2] = Ms_v[i*2];
+        MsE_v[i*2](3) *= 2.0; MsE_v[i*2](4) *= 2.0; MsE_v[i*2](5) *= 2.0;
 
         for (int j = 0; j < 3; j++) b[j] = -b[j];
         M[i*2+1].setZero();
@@ -62,6 +65,8 @@ MaterialParams::MaterialParams(const std::string& filename) {
         Ms_v[i*2+1](3) = Ms(1, 2);
         Ms_v[i*2+1](4) = Ms(0, 2);
         Ms_v[i*2+1](5) = Ms(0, 1);
+        MsE_v[i*2+1] = Ms_v[i*2+1];
+        MsE_v[i*2+1](3) *= 2.0; MsE_v[i*2+1](4) *= 2.0; MsE_v[i*2+1](5) *= 2.0;
     }
 
     double c1, c2, c3;
@@ -86,4 +91,7 @@ MaterialParams::MaterialParams(const std::string& filename) {
     file >> tc0;
     file >> strain_rate_infl;
     file >> n_power;
+
+    unsigned im;
+    if (file >> im) integ_mode = im;   // опциональный токен; EOF → остаётся 0
 }
