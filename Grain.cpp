@@ -209,19 +209,7 @@ void Grain::integrate(double dt)
     }
 
     if (params->hard_mode == 2)
-    {
-        if (H_buf.size() != n) H_buf.resize(n);
-        for (int j = 0; j < n; j++)
-        {
-            double t_j = tc[j];
-            double Hii = 0;
-            if (t_j <= params->ts)
-                Hii = params->A * params->h0 * std::pow(std::abs(1.0 - t_j / params->ts), params->alfa);
-            H_buf(j) = Hii;
-        }
-        H.noalias() = params->q * Eigen::VectorXd::Ones(n) * H_buf.transpose();
-        H.diagonal() = H_buf;
-    }
+        update_H_KM();
     else if (params->hard_mode == 1)
     {
         double total_gamma = 0.0;
@@ -232,22 +220,42 @@ void Grain::integrate(double dt)
             tc[i] = new_tc;
     }
 
-    if (params->rot_mode != 0)
+    apply_rotation(dt);
+}
+
+void Grain::update_H_KM()
+{
+    int n = 2 * params->num_slip_sys;
+    if (H_buf.size() != n) H_buf.resize(n);
+    for (int j = 0; j < n; j++)
     {
-        W_mat_buf = 0.5 * (L - L.transpose());
-
-        if (params->rot_mode == 1)
-        {
-            Omega_buf = W_mat_buf;
-        }
-        else if (params->rot_mode == 2)
-        {
-            computePlasticSpin();
-            Omega_buf.noalias() = W_mat_buf - Wp_mat_buf;
-        }
-
-        updateOrientation(Omega_buf, dt);
+        double t_j = tc[j];
+        double Hii = 0;
+        if (t_j <= params->ts)
+            Hii = params->A * params->h0 * std::pow(std::abs(1.0 - t_j / params->ts), params->alfa);
+        H_buf(j) = Hii;
     }
+    H.noalias() = params->q * Eigen::VectorXd::Ones(n) * H_buf.transpose();
+    H.diagonal() = H_buf;
+}
+
+void Grain::apply_rotation(double dt)
+{
+    if (params->rot_mode == 0) return;
+
+    W_mat_buf = 0.5 * (L - L.transpose());
+
+    if (params->rot_mode == 1)
+    {
+        Omega_buf = W_mat_buf;
+    }
+    else if (params->rot_mode == 2)
+    {
+        computePlasticSpin();
+        Omega_buf.noalias() = W_mat_buf - Wp_mat_buf;
+    }
+
+    updateOrientation(Omega_buf, dt);
 }
 
 void Grain::computePlasticSpin()

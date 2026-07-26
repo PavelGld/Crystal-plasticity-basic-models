@@ -64,6 +64,8 @@ class Grain
     double elastic_buf;
     void find_SS(double dT);
     void integrate(double dt);
+    void apply_rotation(double dt);
+    void update_H_KM();
 
     void computePlasticSpin();
     void updateOrientation(const Eigen::Matrix3d& Omega, double dt);
