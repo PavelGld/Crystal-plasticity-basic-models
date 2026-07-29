@@ -229,3 +229,90 @@ TEST_CASE("implicit isotropic hardening") {
     for (size_t i = 1; i < n; i++)
         CHECK(gr.get_tc(i) == doctest::Approx(tc_after));
 }
+
+TEST_CASE("implicit uniaxial tension equivalence [slow]") {
+    RVE rve("rve_validation_impl.txt");
+    Eigen::Matrix3d L = make_uniaxial_tension_L();
+
+    struct { double strain; double stress_mpa; } points[] = {
+        {0.040001,  47.5336},
+        {0.0800003, 61.1466}
+    };
+    size_t cp_idx = 0;
+
+    while (cp_idx < 2 && rve.get_accumulated_strain() < 0.08) {
+        rve.Simulate_Step(dt, L);
+
+        double acc = rve.get_accumulated_strain();
+        if (acc >= points[cp_idx].strain) {
+            double actual = rve.get_stress_intensity() / 1e6;
+            CHECK(actual == doctest::Approx(points[cp_idx].stress_mpa).epsilon(0.05));
+            cp_idx++;
+        }
+    }
+}
+
+TEST_CASE("implicit hard loading equivalence [slow]") {
+    RVE rve("rve_validation_impl.txt");
+    Eigen::Matrix3d L = make_uniaxial_tension_L();
+    Eigen::Matrix3d L1 = make_plane_strain_L();
+
+    struct { double strain; double stress_mpa; } points[] = {
+        {0.0900014, 64.1854},
+        {0.0910006, 55.8186},
+        {0.3,        80.2589}
+    };
+    size_t cp_idx = 0;
+
+    while (cp_idx < 3 && rve.get_accumulated_strain() < 0.3) {
+        if (rve.get_accumulated_strain() < 0.09)
+            rve.Simulate_Step(dt, L);
+        else
+            rve.Simulate_Step(dt, L1);
+
+        double acc = rve.get_accumulated_strain();
+        if (acc >= points[cp_idx].strain) {
+            double actual = rve.get_stress_intensity() / 1e6;
+            CHECK(actual == doctest::Approx(points[cp_idx].stress_mpa).epsilon(0.05));
+            cp_idx++;
+        }
+    }
+}
+
+TEST_CASE("implicit big step x10") {
+    RVE rve("rve_validation_impl.txt");
+    Eigen::Matrix3d L = make_uniaxial_tension_L();
+    double dt_big = 10e-3;
+
+    struct { double strain; double stress_mpa; } points[] = {
+        {0.040001,  47.5336},
+        {0.0800003, 61.1466}
+    };
+    size_t cp_idx = 0;
+
+    while (cp_idx < 2 && rve.get_accumulated_strain() < 0.08) {
+        rve.Simulate_Step(dt_big, L);
+
+        double acc = rve.get_accumulated_strain();
+        if (acc >= points[cp_idx].strain) {
+            double actual = rve.get_stress_intensity() / 1e6;
+            CHECK(actual == actual);  // not NaN
+            CHECK(actual == doctest::Approx(points[cp_idx].stress_mpa).epsilon(0.10));
+            cp_idx++;
+        }
+    }
+}
+
+TEST_CASE("implicit big step x50") {
+    RVE rve("rve_validation_impl.txt");
+    Eigen::Matrix3d L = make_uniaxial_tension_L();
+    double dt_big = 50e-3;
+
+    while (rve.get_accumulated_strain() < 0.04) {
+        rve.Simulate_Step(dt_big, L);
+    }
+
+    double actual = rve.get_stress_intensity() / 1e6;
+    CHECK(actual == actual);  // not NaN
+    CHECK(actual == doctest::Approx(47.5336).epsilon(0.10));
+}
