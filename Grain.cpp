@@ -62,6 +62,20 @@ void Grain::init_common()
     shifts.assign(n, 0.0);
     sp_shifts.assign(n, 0.0);
 
+    gamma_dot.setZero(n);
+    tau_buf.setZero(n);
+    tc_eff.setZero(n);
+    G_buf.setZero(n, 6);
+    G_prev.setZero(n, 6);
+    J_buf.setZero();
+    dyad_buf.setZero();
+    res_v.setZero();
+    res_new_v.setZero();
+    sigma_trial_v.setZero();
+    sigma_new_v.setZero();
+    delta_sigma_v.setZero();
+    trial_inc_v.setZero();
+
     T_voigt_valid = false;
     random_state = 0;
 }
@@ -258,6 +272,172 @@ void Grain::apply_rotation(double dt)
     updateOrientation(Omega_buf, dt);
 }
 
+// Оценка Dp и производных для заданного σ (детерминированная функция σ:
+// фиксированное число sweep'ов fixed-point по γ̇↔τc).
+// Заполняет: tau_buf, gamma_dot, Dp_v (инженерная), tc_eff, G_prev (∂γ̇/∂σ).
+void Grain::evaluate_Dp(const Vector6d& sigma, double dt)
+{
+    int n = 2 * params->num_slip_sys;
+
+    for (int i = 0; i < n; i++)
+        tau_buf(i) = sigma.dot(params->Ms_v[i]);
+
+    gamma_dot.setZero();
+
+    int sweeps = (params->hard_mode == 0) ? 1 : 3;
+    for (int s = 0; s < sweeps; s++)
+    {
+        // эффективные τc от текущего итерата γ̇
+        if (params->hard_mode == 2) {
+            for (int i = 0; i < n; i++) {
+                double dtc = 0.0;
+                for (int j = 0; j < n; j++)
+                    dtc += H(i, j) * gamma_dot(j);
+                tc_eff(i) = tc[i] + dtc * dt;
+            }
+        } else if (params->hard_mode == 1) {
+            double gamma_tot = 0.0;
+            for (int i = 0; i < n; i++)
+                gamma_tot += shifts[i] + gamma_dot(i) * dt;
+            double tc_iso = params->tc0 + params->iso_a * std::pow(gamma_tot, params->iso_b);
+            tc_eff.setConstant(tc_iso);
+        } else {
+            for (int i = 0; i < n; i++)
+                tc_eff(i) = tc[i];
+        }
+
+        // Чистый степенной закон (без порога): γ̇ = rf·(τ/τc)^n для τ > 0.
+        // Решение от 2026-07-26: пороговый закон разрывен на τ=τc → у невязки
+        // Ньютона нет корня на упруго-пластическом переходе. Явная схема
+        // сохраняет порог; эквивалентность проверяется тестами (5%).
+        for (int i = 0; i < n; i++) {
+            if (tau_buf(i) > 0.0) {
+                double ratio = tau_buf(i) / tc_eff(i);
+                if (ratio > RATIO_MAX) ratio = RATIO_MAX;   // защита от переполнения pow
+                gamma_dot(i) = rate_factor_impl * std::pow(ratio, params->n_power);
+            } else {
+                gamma_dot(i) = 0.0;
+            }
+        }
+    }
+
+    // Dp в инженерной нотации Фойгта (сдвиги ×2 — как в find_SS)
+    Dp_v.setZero();
+    for (int i = 0; i < n; i++)
+        if (gamma_dot(i) > 0.0)
+            Dp_v.noalias() += gamma_dot(i) * params->MsE_v[i];
+
+    // G = ∂γ̇/∂σ (n×6), та же схема sweep'ов; связка упрочнения — с предыдущего sweep'а
+    G_prev.setZero();
+    for (int s = 0; s < sweeps; s++)
+    {
+        for (int i = 0; i < n; i++) {
+            if (gamma_dot(i) > 0.0) {
+                // производные в точке клампированного ratio (осознанное приближение за клампом)
+                double a_i = params->n_power * gamma_dot(i) / tau_buf(i);
+                double b_i = -params->n_power * gamma_dot(i) / tc_eff(i);
+                G_buf.row(i) = a_i * params->Ms_v[i].transpose();
+                if (params->hard_mode == 2) {
+                    for (int j = 0; j < n; j++)
+                        if (H(i, j) != 0.0)
+                            G_buf.row(i) += (b_i * H(i, j) * dt) * G_prev.row(j);
+                } else if (params->hard_mode == 1) {
+                    double gamma_tot = 0.0;
+                    for (int j = 0; j < n; j++)
+                        gamma_tot += shifts[j] + gamma_dot(j) * dt;
+                    double dh = (gamma_tot > 1e-30)
+                        ? params->iso_a * params->iso_b * std::pow(gamma_tot, params->iso_b - 1.0)
+                        : 0.0;
+                    G_buf.row(i) += (b_i * dh * dt) * G_prev.colwise().sum();
+                }
+            } else {
+                G_buf.row(i).setZero();
+            }
+        }
+        G_prev.swap(G_buf);
+    }
+}
+
+// J = I + Δt · P · Σ_α MsE^α ⊗ G^α
+void Grain::assemble_J(double dt)
+{
+    int n = 2 * params->num_slip_sys;
+    dyad_buf.setZero();
+    for (int i = 0; i < n; i++)
+        if (gamma_dot(i) > 0.0)
+            dyad_buf.noalias() += params->MsE_v[i] * G_prev.row(i);
+    J_buf.noalias() = Matrix6d::Identity() + params->P_v * dyad_buf * dt;
+}
+
+// Ньютон по σ с line search Армихо; fallback — деление шага пополам.
+// Требует: D_v (КСК, инженерная) и L (КСК) уже установлены, clear() выполнен.
+void Grain::solve_implicit(double dt, int depth)
+{
+    int n = 2 * params->num_slip_sys;
+
+    rate_factor_impl = params->strain_rate_infl * computeDeviatoricDu();
+
+    trial_inc_v.noalias() = params->P_v * D_v;
+    sigma_trial_v.noalias() = Stress_v + trial_inc_v * dt;
+
+    Buf_v = sigma_trial_v;   // текущий итерат σ
+
+    evaluate_Dp(Buf_v, dt);
+    res_v = Buf_v - sigma_trial_v + params->P_v * Dp_v * dt;
+    double scale = std::max(sigma_trial_v.norm(), params->tc0);
+    double rnorm = res_v.norm();
+
+    bool converged = (rnorm < NEWTON_TOL * scale);
+    for (int iter = 0; iter < NEWTON_MAX_ITER && !converged; iter++)
+    {
+        assemble_J(dt);
+        Eigen::PartialPivLU<Matrix6d> lu(J_buf);
+        delta_sigma_v = lu.solve(-res_v);
+
+        double lambda = 1.0;
+        double rnorm_new = rnorm;
+        bool accepted = false;
+        for (int bt = 0; bt <= NEWTON_MAX_BACKTRACKS; bt++)
+        {
+            sigma_new_v = Buf_v + lambda * delta_sigma_v;
+            evaluate_Dp(sigma_new_v, dt);
+            res_new_v = sigma_new_v - sigma_trial_v + params->P_v * Dp_v * dt;
+            rnorm_new = res_new_v.norm();
+            if (rnorm_new <= (1.0 - 1e-4 * lambda) * rnorm) { accepted = true; break; }
+            lambda *= 0.5;
+        }
+        if (!accepted) break;   // → fallback
+
+        Buf_v = sigma_new_v;
+        res_v = res_new_v;
+        rnorm = rnorm_new;
+        converged = (rnorm < NEWTON_TOL * scale);
+    }
+
+    if (!converged)
+    {
+        if (depth >= MAX_FALLBACK_DEPTH)
+            throw std::runtime_error("implicit Newton failed to converge at max fallback depth");
+        solve_implicit(0.5 * dt, depth + 1);
+        solve_implicit(0.5 * dt, depth + 1);
+        return;
+    }
+
+    // Обновление состояния по сошедшимся γ̇
+    // (последний evaluate_Dp был именно в Buf_v → gamma_dot/tc_eff/G_prev соответствуют точке сходимости)
+    Stress_v = Buf_v;
+    for (int i = 0; i < n; i++) {
+        sp_shifts[i] = gamma_dot(i);
+        new_step[i] = (gamma_dot(i) > 0.0) ? 1 : 0;
+        shifts[i] += gamma_dot(i) * dt;
+        tc[i] = tc_eff(i);
+    }
+    if (params->hard_mode == 2)
+        update_H_KM();
+
+    apply_rotation(dt);
+}
+
 void Grain::computePlasticSpin()
 {
     Wp_mat_buf.setZero();
@@ -293,9 +473,10 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
     double ds = du * dt;
 
     // Adaptive sub-stepping: if strain increment exceeds ds_crit, split the step
+    double ds_crit = (params->integ_mode == 1) ? DS_CRITICAL_IMPL : DS_CRITICAL;
     int n_substeps = 1;
-    if (ds > DS_CRITICAL) {
-        n_substeps = static_cast<int>(std::ceil(ds / DS_CRITICAL));
+    if (ds > ds_crit) {
+        n_substeps = static_cast<int>(std::ceil(ds / ds_crit));
     }
     double sub_dt = dt / n_substeps;
 
@@ -315,20 +496,24 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
         tensorToVoigtInPlace(Buf, D_v);
 
         // Elastic-plastic split for this substep
-        dT = actual_dt;
-        Sum_time = 0;
-        elastic_buf = 0;
+        if (params->integ_mode == 1) {
+            solve_implicit(actual_dt, 0);
+        } else {
+            dT = actual_dt;
+            Sum_time = 0;
+            elastic_buf = 0;
 
-        while (actual_dt > Sum_time + TIME_EPSILON) {
-            if (check_elastic(dT))
-                Sum_time += dT;
-            else {
-                double dt_plastic = dT - elastic_buf;
-                Sum_time += dT;
-                if (dt_plastic > TIME_EPSILON)
-                    find_SS(dt_plastic);
+            while (actual_dt > Sum_time + TIME_EPSILON) {
+                if (check_elastic(dT))
+                    Sum_time += dT;
+                else {
+                    double dt_plastic = dT - elastic_buf;
+                    Sum_time += dT;
+                    if (dt_plastic > TIME_EPSILON)
+                        find_SS(dt_plastic);
+                }
+                dT = actual_dt - Sum_time;
             }
-            dT = actual_dt - Sum_time;
         }
 
         exp_buf.noalias() = actual_dt * L;

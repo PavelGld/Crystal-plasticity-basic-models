@@ -55,6 +55,33 @@ class Grain
     static constexpr double TIME_EPSILON = 1e-15;
     static constexpr double DS_CRITICAL = 1.7e-6;
 
+    // Неявная схема (integ_mode==1)
+    static constexpr double NEWTON_TOL = 1e-8;
+    static constexpr int NEWTON_MAX_ITER = 20;
+    static constexpr int NEWTON_MAX_BACKTRACKS = 5;
+    static constexpr double RATIO_MAX = 2.0;          // кламп τ/τc (2^50 ≈ 1e15, переполнения нет)
+    static constexpr int MAX_FALLBACK_DEPTH = 8;
+    static constexpr double DS_CRITICAL_IMPL = 1e-4;  // порог подшагивания для неявной схемы
+
+    mutable Matrix6d J_buf;
+    mutable Matrix6d dyad_buf;
+    Vector6d res_v;                 // невязка R
+    Vector6d res_new_v;
+    Vector6d sigma_trial_v;
+    Vector6d sigma_new_v;
+    Vector6d delta_sigma_v;
+    Vector6d trial_inc_v;           // P_v * D_v (trial-инкремент)
+    Eigen::VectorXd gamma_dot;      // скорости сдвига (итерат/сошедшиеся), n
+    Eigen::VectorXd tau_buf;        // τ^α, n
+    Eigen::VectorXd tc_eff;         // эффективные τc с учётом упрочнения внутри шага, n
+    Eigen::MatrixXd G_buf;          // ∂γ̇/∂σ, n×6
+    Eigen::MatrixXd G_prev;         // G с предыдущего sweep'а, n×6
+    double rate_factor_impl = 0.0;  // γ̇₀ · D_eq на текущий шаг
+
+    void solve_implicit(double dt, int depth);
+    void evaluate_Dp(const Vector6d& sigma, double dt);
+    void assemble_J(double dt);
+
     void init_common();
     void clear();
     bool check_elastic(double dt);

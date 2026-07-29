@@ -180,3 +180,52 @@ TEST_CASE("integ_mode parsing") {
         CHECK(p_imp.MsE_v[i](5) == doctest::Approx(2.0 * p_imp.Ms_v[i](5)));
     }
 }
+
+TEST_CASE("implicit single grain") {
+    // Сравнение с явной схемой на одиночном зерне бессмысленно: у явной схемы
+    // здесь ошибка forward-Euler до ~38% при dt=1e-3 (измерено 2026-07-26:
+    // explicit 15.99 MPa при dt=1e-3 vs 24.00 при dt=1e-4 vs предел ~25.7).
+    // Вместо этого: (1) самосходимость неявной схемы по dt,
+    // (2) контрольное значение. Физический гейт — RVE-эквивалентность (Task 4).
+
+    double eps_dot_local = 0.017;
+    Eigen::Matrix3d L = Eigen::Matrix3d::Zero();
+    L(0, 0) = -0.5 * eps_dot_local;
+    L(1, 1) = -0.5 * eps_dot_local;
+    L(2, 2) = eps_dot_local;
+
+    Grain gr_coarse("grain_implicit.txt");
+    for (int i = 0; i < 1000; i++)
+        gr_coarse.Simulate_Step(1e-3, L);
+    double s_c = gr_coarse.get_stress_intensity();
+
+    Grain gr_fine("grain_implicit.txt");
+    for (int i = 0; i < 10000; i++)
+        gr_fine.Simulate_Step(1e-4, L);
+    double s_f = gr_fine.get_stress_intensity();
+
+    CHECK(s_c == doctest::Approx(s_f).epsilon(0.01));            // dt-независимость
+    CHECK(s_c / 1e6 == doctest::Approx(25.69).epsilon(0.02));    // контрольное значение
+}
+
+TEST_CASE("implicit isotropic hardening") {
+    Grain gr("grain_test_iso_impl.txt");
+
+    double eps_dot_local = 0.017;
+    Eigen::Matrix3d L = Eigen::Matrix3d::Zero();
+    L(0, 0) = -0.5 * eps_dot_local;
+    L(1, 1) = -0.5 * eps_dot_local;
+    L(2, 2) = eps_dot_local;
+
+    double tc0 = gr.get_tc(0);
+    double dt_local = 1e-3;
+    for (int i = 0; i < 1000; i++)
+        gr.Simulate_Step(dt_local, L);
+
+    double tc_after = gr.get_tc(0);
+    CHECK(tc_after > tc0);
+
+    size_t n = gr.num_slip_systems();
+    for (size_t i = 1; i < n; i++)
+        CHECK(gr.get_tc(i) == doctest::Approx(tc_after));
+}
