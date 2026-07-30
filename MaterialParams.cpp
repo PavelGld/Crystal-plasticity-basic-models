@@ -1,4 +1,4 @@
-#include "MaterialParams.h"
+﻿#include "MaterialParams.h"
 #include "tensor_utils.h"
 #include <iostream>
 #include <fstream>
@@ -93,5 +93,5 @@ MaterialParams::MaterialParams(const std::string& filename) {
     file >> n_power;
 
     unsigned im;
-    if (file >> im) integ_mode = im;   // опциональный токен; EOF → остаётся 0
+    if (file >> im) { integ_mode = im; if (integ_mode > 1) throw std::runtime_error("integ_mode must be 0 or 1"); }   // опциональный токен; EOF → остаётся 0
 }
