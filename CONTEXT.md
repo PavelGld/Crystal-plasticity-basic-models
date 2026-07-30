@@ -4,7 +4,7 @@
 
 C++ реализация модели кристаллической пластичности для одиночного зерна (кристаллита) и представительского объёма (RVE). Проект использует библиотеку Eigen для линейной алгебры. Все вычисления ведутся в нотации Фойгта (6-мерное пространство для симметричных тензоров).
 
-**Текущий статус:** Базовая упруговязкопластическая модель + ротация кристаллической решётки + RVE + мягкое нагружение + валидация текстур + изотропное упрочнение — реализованы и протестированы. Полюсные фигуры для 4 режимов нагружения совпадают с литературными данными.
+**Текущий статус:** Базовая упруговязкопластическая модель + ротация кристаллической решётки + RVE + валидация текстур + изотропное упрочнение + неявная схема интегрирования (integ_mode=1, Newton-Raphson) с консистентным тангенсом — реализованы и протестированы. Полюсные фигуры для 4 режимов нагружения совпадают с литературными данными. Мягкое нагружение — в разработке (известно нерабочее).
 
 ## Файловая структура
 
@@ -22,6 +22,9 @@ EigenProject/
 ├── dochtet.h                     — фреймворк doctest для автотестов
 ├── tests.cpp                     — автоматизированные тесты (7 тестов, 35 checks)
 ├── grain_test_shear.txt          — материал с rot_mode=1 для теста поворота
+├── grain_implicit.txt             — материал с integ_mode=1 (неявная схема, hard_mode=2)
+├── grain_test_iso_impl.txt        — изотропное упрочнение + integ_mode=1
+├── rve_validation_impl.txt        — конфиг RVE для неявной схемы
 │
 ├── rotation_validation_test_results/
 │   ├── rotation_validation.cpp   — файл валидации: unit-тесты + генерация текстур
@@ -46,6 +49,7 @@ struct MaterialParams {
     std::vector<Eigen::Matrix3d> M;      // тензоры ориентации M = b⊗n
     std::vector<Eigen::Matrix3d> Wpm;    // антисимметричная часть Wpm = 0.5*(b⊗n - n⊗b)
     std::vector<Vector6d> Ms_v;          // симметричная часть в Фойгте
+    std::vector<Vector6d> MsE_v;         // то же в инженерной нотации (сдвиги ×2)
     int num_slip_sys;
 
     // Упругость
@@ -54,6 +58,7 @@ struct MaterialParams {
     // Режимы модели
     unsigned hard_mode;                  // 0=без упрочнения, 1=изотропное, 2=Kocks-Mecking
     unsigned rot_mode;                   // 0=нет, 1=материальный, 2=Тейлор
+    unsigned integ_mode = 0;             // 0=явная схема, 1=неявная (Newton-Raphson)
 
     // Параметры пластичности
     double tc0;                          // начальное критическое напряжение
@@ -202,7 +207,16 @@ orient_q = orient_q * dq   // СПРАВА (omega в КСК)
 | `hard_loading` | 3 точки ε→σ на кривой hard loading (допуск 5%) |
 | `isotropic hard loading` | 3 точки ε→σ на кривой изотропного упрочнения (допуск 5%) |
 | `uniaxial_tension` | 2 точки ε→σ на кривой растяжения (допуск 5%) |
-| `isotropic hardening` | tc растёт монотонно + изотропия при hard_mode=1 |
+| `isotropic hardening` | τc растёт монотонно + изотропия при hard_mode=1 |
+| `integ_mode parsing` | Парсинг integ_mode и MsE_v (24 системы, оба знака ±b) |
+| `implicit single grain` | Самосходимость неявной схемы по dt (1%) + контрольное значение (2%) |
+| `implicit isotropic hardening` | Изотропное упрочнение под неявной схемой |
+| `implicit big step x10` | Стабильность при dt×10 (RVE, 1000 зёрен, допуск 10%) |
+| `implicit big step x50` | Стабильность при dt×50 (RVE, допуск 10%) |
+| `implicit uniaxial tension equivalence [slow]` | Кривая растяжения (неявная vs референс, допуск 5%) |
+| `implicit hard loading equivalence [slow]` | Кривая жёсткого нагружения (неявная vs референс, допуск 5%) |
+| `implicit tangent FD` | Консистентный тангенс против конечных разностей (допуск 0.5%) |
+| `implicit RVE tangent` | Тангенс RVE: конечный, упругий порядок, симметрия |
 
 ## Формат входного файла материала
 
@@ -217,9 +231,25 @@ c11 c12 c44
 tc0
 strain_rate_infl
 n_power
+[integ_mode]         (опционально: 0=явная схема, 1=неявная; по умолчанию 0)
 ```
 
 Системы скольжения удваиваются автоматически (±b).
+
+## Неявная схема (integ_mode=1)
+
+Newton–Raphson по напряжениям (6×6): R(σ) = σ − σ_tr + Δt·P:Dᵖ(σ) = 0,
+J = I + Δt·P·Σ MsE^α⊗G^α. Чистый степенной закон Хатчинсона (γ̇ = γ̇₀·D_eq·(τ/τc)^n для τ>0).
+Упрочнение fully implicit: fixed-point 3 sweep'а γ̇↔τc_eff, связка ∂Δγ/∂σ с предыдущего sweep'а (приближение Калидинди).
+
+Параметры: NEWTON_TOL=1e-8, NEWTON_MAX_ITER=20, line search Армихо (до 5 откатов), кламп τ/τc ≤ 2.0.
+Fallback: деление шага пополам, глубина ≤ 8.
+Подшагивание: DS_CRITICAL_IMPL=1e-4.
+
+Консистентный тангенс (кристальный, Фойгт): ∂Δσ/∂Δε = J⁻¹·(P − c·gᵀ), где c = P·Dᵖ, g = ∂ln(D_eq)/∂D.
+RVE-тангенс — осреднение зернных в ЛСК.
+
+Методы: `Grain::get_tangent_crystal_into`, `Grain::get_tangent_lab_into`, `RVE::get_tangent_lab_into`.
 
 ## Оптимизации
 
@@ -260,6 +290,8 @@ double get_stress_intensity() const        // эквивалентные нап�
 Quaterniond get_orientation() const        // кватернион ориентации
 void set_orientation(const Quaterniond& q) // установка ориентации
 void get_elasticity_lab_into(Matrix6d& result) const // упругость в ЛСК (Фойгт), записывает в result
+void get_tangent_crystal_into(Matrix6d& result) const // консистентный тангенс в КСК (Фойгт)
+void get_tangent_lab_into(Matrix6d& result) const    // консистентный тангенс в ЛСК (Фойгт)
 
 double acc_def  // накопленная эквивалентная деформация (уровень зерна)
 double time     // время моделирования (уровень зерна)
@@ -281,4 +313,5 @@ double get_time() const
 double get_accumulated_strain() const
 size_t num_grains()
 const Grain& get_grain(size_t i)
+void get_tangent_lab_into(Matrix6d& result) const    // осреднённый тангенс RVE (ЛСК, Фойгт)
 ```
