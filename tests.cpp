@@ -316,3 +316,64 @@ TEST_CASE("implicit big step x50") {
     CHECK(actual == actual);  // not NaN
     CHECK(actual == doctest::Approx(47.5336).epsilon(0.10));
 }
+
+TEST_CASE("implicit tangent FD") {
+    Grain gr("grain_implicit.txt");
+
+    double eps_dot_local = 0.017;
+    Eigen::Matrix3d L = Eigen::Matrix3d::Zero();
+    L(0, 0) = -0.5 * eps_dot_local;
+    L(1, 1) = -0.5 * eps_dot_local;
+    L(2, 2) = eps_dot_local;
+
+    double dt_local = 1e-3;
+    for (int i = 0; i < 49; i++)
+        gr.Simulate_Step(dt_local, L);   // установившееся пластическое состояние
+
+    Grain gr_base = gr;                  // состояние S49 (копия)
+    gr.Simulate_Step(dt_local, L);       // шаг S49→S50, тангенс соответствует этому шагу
+
+    Matrix6d T = Matrix6d::Zero();
+    gr.get_tangent_crystal_into(T);
+
+    double h = 1e-6;                     // возмущение скорости деформации
+    for (int k = 0; k < 6; k++) {
+        auto ij = voigtToTensorIndex(k);
+        Eigen::Matrix3d dL = Eigen::Matrix3d::Zero();
+        if (ij.first == ij.second)
+            dL(ij.first, ij.second) = h;
+        else {
+            dL(ij.first, ij.second) = 0.5 * h;   // симметрично → D_v(k) = h
+            dL(ij.second, ij.first) = 0.5 * h;
+        }
+
+        Grain gp = gr_base;
+        gp.Simulate_Step(dt_local, L + dL);
+        Grain gm = gr_base;
+        gm.Simulate_Step(dt_local, L - dL);
+
+        Vector6d col_fd = (gp.get_stress() - gm.get_stress()) / (2.0 * h * dt_local);
+        for (int r = 0; r < 6; r++) {
+            double diff = std::abs(col_fd(r) - T(r, k));
+            CHECK(diff < 5e-3 * std::abs(T(r, k)) + 1e7);   // отн. 5e-3, абс. 1e7 Па
+        }
+    }
+}
+
+TEST_CASE("implicit RVE tangent") {
+    RVE rve("rve_validation_impl.txt");
+    Eigen::Matrix3d L = make_uniaxial_tension_L();
+
+    for (int i = 0; i < 50; i++)
+        rve.Simulate_Step(dt, L);
+
+    Matrix6d T;
+    rve.get_tangent_lab_into(T);
+
+    for (int r = 0; r < 6; r++)
+        for (int c = 0; c < 6; c++)
+            CHECK(T(r, c) == T(r, c));   // not NaN
+
+    CHECK(T(0, 0) > 1e10);                              // упругий порядок величины
+    CHECK(std::abs(T(0, 1) - T(1, 0)) < 1e-2 * std::abs(T(0, 1)) + 1e6);  // грубая симметрия
+}

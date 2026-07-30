@@ -63,6 +63,9 @@ class Grain
     static constexpr int MAX_FALLBACK_DEPTH = 8;
     static constexpr double DS_CRITICAL_IMPL = 1e-4;  // порог подшагивания для неявной схемы
 
+    mutable Matrix6d tangent_buf;   // консистентный тангенс последнего неявного шага (КСК)
+    bool tangent_valid = false;
+
     mutable Matrix6d J_buf;
     mutable Matrix6d dyad_buf;
     Vector6d res_v;                 // невязка R
@@ -146,6 +149,8 @@ public:
 
     const Vector6d& get_Dp_v() const { return Dp_v; }
     void get_elasticity_lab_into(Matrix6d& result) const;
+    void get_tangent_crystal_into(Matrix6d& result) const;  // J^-1·P сошедшегося шага (КСК)
+    void get_tangent_lab_into(Matrix6d& result) const;      // то же в ЛСК
 
 private:
     mutable Matrix6d T_voigt_buf;

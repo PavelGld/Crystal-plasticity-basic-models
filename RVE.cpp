@@ -252,3 +252,14 @@ double RVE::get_stress_intensity() const {
         + 2.0 * (s12 * s12 + s13 * s13 + s23 * s23);
     return std::sqrt(1.5 * j2s);
 }
+
+void RVE::get_tangent_lab_into(Matrix6d& result) const
+{
+    result.setZero();
+    int n = static_cast<int>(grains.size());
+    for (int i = 0; i < n; i++) {
+        double w = grains[i].get_volume() / total_volume;
+        grains[i].get_tangent_lab_into(temp_P_buf);
+        result.noalias() += w * temp_P_buf;
+    }
+}

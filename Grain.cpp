@@ -76,6 +76,9 @@ void Grain::init_common()
     delta_sigma_v.setZero();
     trial_inc_v.setZero();
 
+    tangent_buf.setZero();
+    tangent_valid = false;
+
     T_voigt_valid = false;
     random_state = 0;
 }
@@ -435,6 +438,32 @@ void Grain::solve_implicit(double dt, int depth)
     if (params->hard_mode == 2)
         update_H_KM();
 
+    // Консистентный тангенс: J^{-1}·(P - c·g^T) на сошедшемся состоянии
+    // c = P·Dᵖ, g = ∂ln(du)/∂D_v. Поправка учитывает зависимость rate_factor от D.
+    assemble_J(dt);
+    {
+        Eigen::PartialPivLU<Matrix6d> lu(J_buf);
+        double du = std::max(computeDeviatoricDu(), 1e-30);
+        if (du > 0 && Dp_v.squaredNorm() > 0) {
+            double inv_3du2 = 1.0 / (3.0 * du * du);
+            Vector6d c = params->P_v * Dp_v;
+            Vector6d g;
+            double tr3 = (D_v(0) + D_v(1) + D_v(2)) / 3.0;
+            g(0) = 2.0 * (D_v(0) - tr3) * inv_3du2;
+            g(1) = 2.0 * (D_v(1) - tr3) * inv_3du2;
+            g(2) = 2.0 * (D_v(2) - tr3) * inv_3du2;
+            g(3) = D_v(3) * inv_3du2;
+            g(4) = D_v(4) * inv_3du2;
+            g(5) = D_v(5) * inv_3du2;
+            Matrix6d P_corrected = params->P_v;
+            P_corrected.noalias() -= c * g.transpose();
+            tangent_buf = lu.solve(P_corrected);
+        } else {
+            tangent_buf = lu.solve(params->P_v);
+        }
+    }
+    tangent_valid = true;
+
     apply_rotation(dt);
 }
 
@@ -658,5 +687,24 @@ void Grain::get_elasticity_lab_into(Matrix6d& result) const {
         T_voigt_valid = true;
     }
     Buf_P.noalias() = T_voigt_buf * params->P_v;
+    result.noalias() = Buf_P * T_voigt_buf.transpose();
+}
+
+void Grain::get_tangent_crystal_into(Matrix6d& result) const
+{
+    if (!tangent_valid)
+        throw std::runtime_error("get_tangent_crystal_into: no implicit step performed yet");
+    result = tangent_buf;
+}
+
+void Grain::get_tangent_lab_into(Matrix6d& result) const
+{
+    if (!tangent_valid)
+        throw std::runtime_error("get_tangent_lab_into: no implicit step performed yet");
+    if (!T_voigt_valid) {
+        computeVoigtRotationInPlace(T_voigt_buf);
+        T_voigt_valid = true;
+    }
+    Buf_P.noalias() = T_voigt_buf * tangent_buf;
     result.noalias() = Buf_P * T_voigt_buf.transpose();
 }

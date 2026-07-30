@@ -58,6 +58,7 @@ public:
     double get_time() const { return sim_time; }
     double get_accumulated_strain() const { return acc_strain; }
     double get_stress_intensity() const;  // von Mises equivalent stress
+    void get_tangent_lab_into(Matrix6d& result) const;  // осреднённый тангенс RVE (Taylor, ЛСК)
 
     // Previous step values (for soft loading analysis)
     Eigen::Matrix<double, 6, 1> get_stress_voigt_old() const { return stress_av_old_v; }
