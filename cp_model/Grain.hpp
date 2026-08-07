@@ -158,6 +158,13 @@ public:
     void get_tangent_crystal_into(Matrix6d& result) const;  // J^-1·P сошедшегося шага (КСК)
     void get_tangent_lab_into(Matrix6d& result) const;      // то же в ЛСК
 
+    // State persistence for UMAT
+    void set_stress_v(const Vector6d& sv) { Stress_v = sv; }
+    void set_tc_all(const std::vector<double>& t) { tc = t; }
+    void set_shifts_all(const std::vector<double>& s) { shifts = s; }
+    void set_acc_def(double a) { acc_def = a; }
+    void set_sim_time(double t) { sim_time = t; }
+
 private:
     mutable Matrix6d T_voigt_buf;
     mutable bool T_voigt_valid = false;
