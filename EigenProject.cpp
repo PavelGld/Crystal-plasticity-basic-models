@@ -5,8 +5,10 @@
 #include <cmath>
 #include <algorithm>
 #include <fstream>
-#include "Grain.h"
-#include "RVE.h"
+#include "cp_model/tensor_utils.hpp"
+#include "cp_model/MaterialParams.hpp"
+#include "cp_model/Grain.hpp"
+#include "cp_model/RVE.hpp"
 
 constexpr double pi = 3.14159265358979323846;
 

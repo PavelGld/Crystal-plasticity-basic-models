@@ -1,7 +1,9 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
-#include "Grain.h"
-#include "RVE.h"
+#include "cp_model/tensor_utils.hpp"
+#include "cp_model/MaterialParams.hpp"
+#include "cp_model/Grain.hpp"
+#include "cp_model/RVE.hpp"
 #include <cmath>
 
 static constexpr double eps_dot = 0.0017;

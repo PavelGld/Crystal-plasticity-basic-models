@@ -54,5 +54,3 @@ inline void applyExpTaylor(const Eigen::Matrix3d& A, Eigen::Matrix3d& F, Eigen::
     scratch.noalias() += A2 * 0.5;
     F.noalias() = scratch * F;
 }
-
-

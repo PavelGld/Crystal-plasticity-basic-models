@@ -1,13 +1,171 @@
-#include "Grain.h"
-#include "tensor_utils.h"
+#pragma once
+#include <Eigen/Dense>
+#include <Eigen/Geometry>
+#include <string>
+#include <memory>
+#include <cstdint>
 #include <iostream>
 #include <fstream>
 #include <algorithm>
 #include <stdexcept>
 #include <cmath>
 #include <unsupported/Eigen/MatrixFunctions>
+#include "cp_model/tensor_utils.hpp"
+#include "cp_model/MaterialParams.hpp"
 
-Grain::Grain(std::string info)
+class Grain
+{
+
+    MaterialParamsPtr params;
+
+    Eigen::MatrixXd H;
+    mutable Eigen::VectorXd H_buf;
+
+    mutable Eigen::Matrix3d Buf;
+    mutable Vector6d Buf_v;
+    mutable Vector6d Buf_PD;
+    mutable Matrix6d Buf_P;
+
+    Eigen::Matrix3d Wp;
+    Eigen::Matrix3d L;
+    Vector6d Dp_v;
+    Vector6d D_v;
+    Eigen::Matrix3d strain_gl;  // Green-Lagrange strain tensor
+    Eigen::Matrix3d F;
+
+    Eigen::Matrix3d Stress;
+    Vector6d Stress_v;
+
+    Eigen::Quaterniond orient_q;
+    mutable Eigen::Matrix3d R_buf;
+    mutable Eigen::Vector3d omega_buf;
+    mutable Eigen::Quaterniond dq_buf;
+    mutable Eigen::Matrix3d W_mat_buf;
+    mutable Eigen::Matrix3d Omega_buf;
+    mutable Eigen::Matrix3d Wp_mat_buf;
+    mutable Eigen::Matrix3d S_buf;
+
+    std::vector<uint8_t> last_step;
+    std::vector<uint8_t> new_step;
+
+    long int random_state;  // seed for grain orientation generation
+
+    std::vector<double> tc;
+    std::vector<double> shifts;
+    std::vector<double> sp_shifts;
+
+    double acc_def, sim_time;  // grain-level state (used when modeling a single grain)
+    double volume = 1.0;
+
+    static constexpr double ROTATION_ANGLE_THRESHOLD = 1e-14;
+    static constexpr double TIME_EPSILON = 1e-15;
+    static constexpr double DS_CRITICAL = 1.7e-6;
+
+    // Неявная схема (integ_mode==1)
+    static constexpr double NEWTON_TOL = 1e-8;
+    static constexpr int NEWTON_MAX_ITER = 20;
+    static constexpr int NEWTON_MAX_BACKTRACKS = 5;
+    static constexpr double RATIO_MAX = 2.0;          // кламп τ/τc (2^50 ≈ 1e15, переполнения нет)
+    static constexpr int MAX_FALLBACK_DEPTH = 8;
+    static constexpr double DS_CRITICAL_IMPL = 1e-4;  // порог подшагивания для неявной схемы
+
+    mutable Matrix6d tangent_buf;   // консистентный тангенс последнего неявного шага (КСК)
+    bool tangent_valid = false;
+
+    mutable Matrix6d J_buf;
+    mutable Matrix6d dyad_buf;
+    Vector6d res_v;                 // невязка R
+    Vector6d res_new_v;
+    Vector6d sigma_trial_v;
+    Vector6d sigma_new_v;
+    Vector6d delta_sigma_v;
+    Vector6d trial_inc_v;           // P_v * D_v (trial-инкремент)
+    Eigen::VectorXd gamma_dot;      // скорости сдвига (итерат/сошедшиеся), n
+    Eigen::VectorXd tau_buf;        // τ^α, n
+    Eigen::VectorXd tc_eff;         // эффективные τc с учётом упрочнения внутри шага, n
+    Eigen::MatrixXd G_buf;          // ∂γ̇/∂σ, n×6
+    Eigen::MatrixXd G_prev;         // G с предыдущего sweep'а, n×6
+    double rate_factor_impl = 0.0;  // γ̇₀ · D_eq на текущий шаг
+
+    void solve_implicit(double dt, int depth);
+    void evaluate_Dp(const Vector6d& sigma, double dt);
+    void assemble_J(double dt);
+
+    void init_common();
+    void clear();
+    bool check_elastic(double dt);
+
+    double dT;
+    double Sum_time;
+    double elastic_buf;
+    void find_SS(double dT);
+    void integrate(double dt);
+    void apply_rotation(double dt);
+    void update_H_KM();
+
+    void computePlasticSpin();
+    void updateOrientation(const Eigen::Matrix3d& Omega, double dt);
+    double computeDeviatoricDu() const;
+
+public:
+    Grain(std::string info);
+    Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation);
+    void Simulate_Step(double dt, const Eigen::Matrix3d& Lnew);
+
+    const Vector6d& get_stress() const;
+
+    Eigen::Quaterniond get_orientation() const;
+
+    void set_orientation(const Eigen::Quaterniond& q);
+
+    Eigen::Matrix3d get_stress_lab() const;
+
+    double get_stress_intensity() const;  // von Mises equivalent stress
+
+    // State variables
+    double get_acc_def() const { return acc_def; }
+    double get_time() const { return sim_time; }
+
+    // Deformation
+    const Eigen::Matrix3d& get_strain() const { return strain_gl; }
+    void get_strain_v_into(Vector6d& out) const {
+        tensorToVoigtInPlace(strain_gl, out);
+    }
+
+    // Slip system state (indexed)
+    size_t num_slip_systems() const;  // total (doubled: В±b)
+    double get_tc(size_t i) const;
+    const std::vector<double>& get_tc_all() const { return tc; }
+    double get_shifts(size_t i) const;
+    const std::vector<double>& get_shifts_all() const { return shifts; }
+    double get_sp_shifts(size_t i) const;
+    const std::vector<double>& get_sp_shifts_all() const { return sp_shifts; }
+    uint8_t get_last_step(size_t i) const;
+    uint8_t get_new_step(size_t i) const;
+
+    long int get_random_state() const { return random_state; }
+    void set_random_state(long int seed) { random_state = seed; }
+    void reset_state();
+
+    // Hardening matrix
+    const Eigen::MatrixXd& get_H() const { return H; }
+
+    double get_volume() const { return volume; }
+    void set_volume(double v) { volume = v; }
+
+    const Vector6d& get_Dp_v() const { return Dp_v; }
+    void get_elasticity_lab_into(Matrix6d& result) const;
+    void get_tangent_crystal_into(Matrix6d& result) const;  // J^-1·P сошедшегося шага (КСК)
+    void get_tangent_lab_into(Matrix6d& result) const;      // то же в ЛСК
+
+private:
+    mutable Matrix6d T_voigt_buf;
+    mutable bool T_voigt_valid = false;
+    mutable Eigen::Matrix3d exp_buf;
+    void computeVoigtRotationInPlace(Matrix6d& T) const;
+};
+
+inline Grain::Grain(std::string info)
     : params(std::make_shared<MaterialParams>(info))
 {
     H = params->H;
@@ -15,7 +173,7 @@ Grain::Grain(std::string info)
     init_common();
 }
 
-Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
+inline Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
     : params(p)
 {
     H = params->H;
@@ -27,7 +185,7 @@ Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
     T_voigt_valid = false;
 }
 
-void Grain::init_common()
+inline void Grain::init_common()
 {
     sim_time = 0;
     acc_def = 0;
@@ -83,7 +241,7 @@ void Grain::init_common()
     random_state = 0;
 }
 
-void Grain::clear()
+inline void Grain::clear()
 {
     Buf.setZero();
     Buf_v.setZero();
@@ -97,7 +255,7 @@ void Grain::clear()
     }
 }
 
-bool Grain::check_elastic(double dt)
+inline bool Grain::check_elastic(double dt)
 {
     int n = 2 * params->num_slip_sys;
     
@@ -159,7 +317,7 @@ bool Grain::check_elastic(double dt)
     return true;
 }
 
-void Grain::find_SS(double dT)
+inline void Grain::find_SS(double dT)
 { 
     int n = 2 * params->num_slip_sys;
     
@@ -206,7 +364,7 @@ void Grain::find_SS(double dT)
     integrate(dT);
 }
 
-void Grain::integrate(double dt)
+inline void Grain::integrate(double dt)
 {
     int n = 2 * params->num_slip_sys;
     
@@ -240,7 +398,7 @@ void Grain::integrate(double dt)
     apply_rotation(dt);
 }
 
-void Grain::update_H_KM()
+inline void Grain::update_H_KM()
 {
     int n = 2 * params->num_slip_sys;
     if (H_buf.size() != n) H_buf.resize(n);
@@ -256,7 +414,7 @@ void Grain::update_H_KM()
     H.diagonal() = H_buf;
 }
 
-void Grain::apply_rotation(double dt)
+inline void Grain::apply_rotation(double dt)
 {
     if (params->rot_mode == 0) return;
 
@@ -278,7 +436,7 @@ void Grain::apply_rotation(double dt)
 // Оценка Dp и производных для заданного σ (детерминированная функция σ:
 // фиксированное число sweep'ов fixed-point по γ̇↔τc).
 // Заполняет: tau_buf, gamma_dot, Dp_v (инженерная), tc_eff, G_prev (∂γ̇/∂σ).
-void Grain::evaluate_Dp(const Vector6d& sigma, double dt)
+inline void Grain::evaluate_Dp(const Vector6d& sigma, double dt)
 {
     int n = 2 * params->num_slip_sys;
 
@@ -362,7 +520,7 @@ void Grain::evaluate_Dp(const Vector6d& sigma, double dt)
 }
 
 // J = I + Δt · P · Σ_α MsE^α ⊗ G^α
-void Grain::assemble_J(double dt)
+inline void Grain::assemble_J(double dt)
 {
     int n = 2 * params->num_slip_sys;
     dyad_buf.setZero();
@@ -374,7 +532,7 @@ void Grain::assemble_J(double dt)
 
 // Ньютон по σ с line search Армихо; fallback — деление шага пополам.
 // Требует: D_v (КСК, инженерная) и L (КСК) уже установлены, clear() выполнен.
-void Grain::solve_implicit(double dt, int depth)
+inline void Grain::solve_implicit(double dt, int depth)
 {
     int n = 2 * params->num_slip_sys;
 
@@ -467,7 +625,7 @@ void Grain::solve_implicit(double dt, int depth)
     apply_rotation(dt);
 }
 
-void Grain::computePlasticSpin()
+inline void Grain::computePlasticSpin()
 {
     Wp_mat_buf.setZero();
     for (int i = 0; i < 2 * params->num_slip_sys; i++)
@@ -475,7 +633,7 @@ void Grain::computePlasticSpin()
             Wp_mat_buf.noalias() += sp_shifts[i] * params->Wpm[i];
 }
 
-void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
+inline void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
 {
     omega_buf(0) = Omega(2, 1) - Omega(1, 2);
     omega_buf(1) = Omega(0, 2) - Omega(2, 0);
@@ -493,7 +651,7 @@ void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
     }
 }
 
-void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
+inline void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 {
     // Compute equivalent strain increment from Lnew (lab frame, rotation-invariant)
     Buf.noalias() = 0.5 * (Lnew + Lnew.transpose());
@@ -560,7 +718,7 @@ void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
     acc_def += ds;
 }
 
-double Grain::computeDeviatoricDu() const
+inline double Grain::computeDeviatoricDu() const
 {
     double trD = D_v(0) + D_v(1) + D_v(2);
     double mean = trD / 3.0;
@@ -572,7 +730,7 @@ double Grain::computeDeviatoricDu() const
     return std::sqrt(2.0 / 3.0 * j2);
 }
 
-void Grain::reset_state()
+inline void Grain::reset_state()
 {
     sim_time = 0;
     acc_def = 0;
@@ -602,7 +760,7 @@ void Grain::reset_state()
     }
 }
 
-double Grain::get_stress_intensity() const
+inline double Grain::get_stress_intensity() const
 {
     double s_mean = (Stress_v(0) + Stress_v(1) + Stress_v(2)) / 3.0;
     double s1 = Stress_v(0) - s_mean;
@@ -613,48 +771,48 @@ double Grain::get_stress_intensity() const
     return std::sqrt(1.5 * j2s);
 }
 
-size_t Grain::num_slip_systems() const {
+inline size_t Grain::num_slip_systems() const {
     return params->num_slip_sys * 2;
 }
 
-double Grain::get_tc(size_t i) const {
+inline double Grain::get_tc(size_t i) const {
     return tc[i];
 }
 
-double Grain::get_shifts(size_t i) const {
+inline double Grain::get_shifts(size_t i) const {
     return shifts[i];
 }
 
-double Grain::get_sp_shifts(size_t i) const {
+inline double Grain::get_sp_shifts(size_t i) const {
     return sp_shifts[i];
 }
 
-uint8_t Grain::get_last_step(size_t i) const {
+inline uint8_t Grain::get_last_step(size_t i) const {
     return last_step[i];
 }
 
-uint8_t Grain::get_new_step(size_t i) const {
+inline uint8_t Grain::get_new_step(size_t i) const {
     return new_step[i];
 }
 
-const Vector6d& Grain::get_stress() const
+inline const Vector6d& Grain::get_stress() const
 {
     return Stress_v;
 }
 
-Eigen::Quaterniond Grain::get_orientation() const
+inline Eigen::Quaterniond Grain::get_orientation() const
 {
     return orient_q;
 }
 
-void Grain::set_orientation(const Eigen::Quaterniond& q)
+inline void Grain::set_orientation(const Eigen::Quaterniond& q)
 {
     orient_q = q.normalized();
     R_buf = orient_q.toRotationMatrix();
     T_voigt_valid = false;  // инвалидация кэша
 }
 
-Eigen::Matrix3d Grain::get_stress_lab() const
+inline Eigen::Matrix3d Grain::get_stress_lab() const
 {
     voigtToTensorInPlace(Stress_v, S_buf);
     Buf.noalias() = R_buf * S_buf;
@@ -662,7 +820,7 @@ Eigen::Matrix3d Grain::get_stress_lab() const
     return S_buf;
 }
 
-void Grain::computeVoigtRotationInPlace(Matrix6d& T) const {
+inline void Grain::computeVoigtRotationInPlace(Matrix6d& T) const {
     T.setZero();
     for (int p = 0; p < 3; ++p)
         for (int q = 0; q < 3; ++q) {
@@ -681,7 +839,7 @@ void Grain::computeVoigtRotationInPlace(Matrix6d& T) const {
         }
 }
 
-void Grain::get_elasticity_lab_into(Matrix6d& result) const {
+inline void Grain::get_elasticity_lab_into(Matrix6d& result) const {
     if (!T_voigt_valid) {
         computeVoigtRotationInPlace(T_voigt_buf);
         T_voigt_valid = true;
@@ -690,14 +848,14 @@ void Grain::get_elasticity_lab_into(Matrix6d& result) const {
     result.noalias() = Buf_P * T_voigt_buf.transpose();
 }
 
-void Grain::get_tangent_crystal_into(Matrix6d& result) const
+inline void Grain::get_tangent_crystal_into(Matrix6d& result) const
 {
     if (!tangent_valid)
         throw std::runtime_error("get_tangent_crystal_into: no implicit step performed yet");
     result = tangent_buf;
 }
 
-void Grain::get_tangent_lab_into(Matrix6d& result) const
+inline void Grain::get_tangent_lab_into(Matrix6d& result) const
 {
     if (!tangent_valid)
         throw std::runtime_error("get_tangent_lab_into: no implicit step performed yet");
