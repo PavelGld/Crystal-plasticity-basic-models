@@ -4,19 +4,25 @@
 #include <string>
 #include <memory>
 #include <cstdint>
-#include <iostream>
-#include <fstream>
 #include <algorithm>
-#include <stdexcept>
 #include <cmath>
 #include <unsupported/Eigen/MatrixFunctions>
+#ifndef ABAQUS_UMAT
+#include <iostream>
+#include <fstream>
+#include <stdexcept>
+#endif
 #include "cp_model/tensor_utils.hpp"
 #include "cp_model/MaterialParams.hpp"
 
 class Grain
 {
 
-    MaterialParamsPtr params;
+#ifdef ABAQUS_UMAT
+    const MaterialParams* params;   // raw pointer (UMAT: no CRT-heavy shared_ptr)
+#else
+    MaterialParamsPtr params;       // shared_ptr (standalone)
+#endif
 
     Eigen::MatrixXd H;
     mutable Eigen::VectorXd H_buf;
@@ -109,7 +115,11 @@ class Grain
 
 public:
     Grain(std::string info);
+#ifndef ABAQUS_UMAT
     Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation);
+#else
+    Grain(const MaterialParams* p, const Eigen::Quaterniond& orientation);
+#endif
     void Simulate_Step(double dt, const Eigen::Matrix3d& Lnew);
 
     const Vector6d& get_stress() const;
@@ -172,6 +182,7 @@ private:
     void computeVoigtRotationInPlace(Matrix6d& T) const;
 };
 
+#ifndef ABAQUS_UMAT
 inline Grain::Grain(std::string info)
     : params(std::make_shared<MaterialParams>(info))
 {
@@ -179,7 +190,19 @@ inline Grain::Grain(std::string info)
 
     init_common();
 }
+#endif
 
+#ifdef ABAQUS_UMAT
+inline Grain::Grain(const MaterialParams* p, const Eigen::Quaterniond& orientation)
+    : params(p)
+{
+    H = params->H;
+    init_common();
+    orient_q = orientation.normalized();
+    R_buf = orient_q.toRotationMatrix();
+    T_voigt_valid = false;
+}
+#else
 inline Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
     : params(p)
 {
@@ -191,6 +214,7 @@ inline Grain::Grain(MaterialParamsPtr p, const Eigen::Quaterniond& orientation)
     R_buf = orient_q.toRotationMatrix();
     T_voigt_valid = false;
 }
+#endif
 
 inline void Grain::init_common()
 {
@@ -584,8 +608,13 @@ inline void Grain::solve_implicit(double dt, int depth)
 
     if (!converged)
     {
-        if (depth >= MAX_FALLBACK_DEPTH)
-            throw std::runtime_error("implicit Newton failed to converge at max fallback depth");
+            if (depth >= MAX_FALLBACK_DEPTH) {
+#ifndef ABAQUS_UMAT
+                throw std::runtime_error("implicit Newton failed to converge at max fallback depth");
+#else
+                return; // UMAT: silently skip, Abaqus will cut step
+#endif
+            }
         solve_implicit(0.5 * dt, depth + 1);
         solve_implicit(0.5 * dt, depth + 1);
         return;

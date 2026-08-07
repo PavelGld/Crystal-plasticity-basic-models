@@ -1,7 +1,5 @@
 #include "cp_umat_interface.hpp"
-#include <stdexcept>
 #include <cmath>
-#include <cstring>
 
 // === init_from_props ===
 void CPUMAT::init_from_props(const double* PROPS, int NPROPS)
@@ -9,8 +7,7 @@ void CPUMAT::init_from_props(const double* PROPS, int NPROPS)
     // Minimal sanity: check NPROPS against hard_mode
     int hard_mode = (int)PROPS[4];
     int expected = (hard_mode == 2) ? 19 : (hard_mode == 1) ? 16 : 14;
-    if (NPROPS != expected)
-        throw std::runtime_error("CPUMAT: wrong NPROPS");
+    if (NPROPS != expected) return;   // wrong PROPS count — skip init
 
     double c11 = PROPS[1], c12 = PROPS[2], c44 = PROPS[3];
     int rot_mode = (int)PROPS[5];
@@ -20,13 +17,14 @@ void CPUMAT::init_from_props(const double* PROPS, int NPROPS)
     double np  = PROPS[9];
     double qw = PROPS[10], qx = PROPS[11], qy = PROPS[12], qz = PROPS[13];
 
-    auto p = std::make_shared<MaterialParams>();
-    p->hard_mode = hard_mode;
-    p->rot_mode = rot_mode;
-    p->integ_mode = integ_mode;
-    p->tc0 = tc0;
-    p->strain_rate_infl = srf;
-    p->n_power = np;
+    raw_params_ = new MaterialParams();
+    MaterialParams& p = *raw_params_;
+    p.hard_mode = hard_mode;
+    p.rot_mode = rot_mode;
+    p.integ_mode = integ_mode;
+    p.tc0 = tc0;
+    p.strain_rate_infl = srf;
+    p.n_power = np;
 
     // FCC {111}<110>, 12 slip systems
     static const double b[12][3] = {
@@ -41,12 +39,12 @@ void CPUMAT::init_from_props(const double* PROPS, int NPROPS)
     };
 
     int n_sys = 12;
-    p->num_slip_sys = n_sys;
+    p.num_slip_sys = n_sys;
     int N = n_sys * 2;
-    p->M.resize(N);
-    p->Wpm.resize(N);
-    p->Ms_v.resize(N);
-    p->MsE_v.resize(N);
+    p.M.resize(N);
+    p.Wpm.resize(N);
+    p.Ms_v.resize(N);
+    p.MsE_v.resize(N);
 
     for (int i = 0; i < n_sys; i++) {
         double bn[3], nn[3];
@@ -55,50 +53,49 @@ void CPUMAT::init_from_props(const double* PROPS, int NPROPS)
         for (int j=0;j<3;j++){bn[j]=b[i][j]/nb; nn[j]=n[i][j]/nd;}
 
         // +b system
-        p->M[i*2].setZero(); p->Wpm[i*2].setZero();
+        p.M[i*2].setZero(); p.Wpm[i*2].setZero();
         for (int j=0;j<3;j++) for(int k=0;k<3;k++){
-            p->M[i*2](j,k) = bn[k] * nn[j];
-            p->Wpm[i*2](j,k) = 0.5*(bn[j]*nn[k] - bn[k]*nn[j]);
+            p.M[i*2](j,k) = bn[k] * nn[j];
+            p.Wpm[i*2](j,k) = 0.5*(bn[j]*nn[k] - bn[k]*nn[j]);
         }
-        Eigen::Matrix3d Ms = 0.5*(p->M[i*2] + p->M[i*2].transpose());
-        tensorToVoigtInPlace(Ms, p->Ms_v[i*2]);
-        p->MsE_v[i*2] = p->Ms_v[i*2];
-        p->MsE_v[i*2](3)*=2; p->MsE_v[i*2](4)*=2; p->MsE_v[i*2](5)*=2;
+        Eigen::Matrix3d Ms = 0.5*(p.M[i*2] + p.M[i*2].transpose());
+        tensorToVoigtInPlace(Ms, p.Ms_v[i*2]);
+        p.MsE_v[i*2] = p.Ms_v[i*2];
+        p.MsE_v[i*2](3)*=2; p.MsE_v[i*2](4)*=2; p.MsE_v[i*2](5)*=2;
 
         // -b system
         for(int j=0;j<3;j++) bn[j] = -bn[j];
-        p->M[i*2+1].setZero(); p->Wpm[i*2+1].setZero();
+        p.M[i*2+1].setZero(); p.Wpm[i*2+1].setZero();
         for (int j=0;j<3;j++) for(int k=0;k<3;k++){
-            p->M[i*2+1](j,k) = bn[k] * nn[j];
-            p->Wpm[i*2+1](j,k) = 0.5*(bn[j]*nn[k] - bn[k]*nn[j]);
+            p.M[i*2+1](j,k) = bn[k] * nn[j];
+            p.Wpm[i*2+1](j,k) = 0.5*(bn[j]*nn[k] - bn[k]*nn[j]);
         }
-        Ms = 0.5*(p->M[i*2+1] + p->M[i*2+1].transpose());
-        tensorToVoigtInPlace(Ms, p->Ms_v[i*2+1]);
-        p->MsE_v[i*2+1] = p->Ms_v[i*2+1];
-        p->MsE_v[i*2+1](3)*=2; p->MsE_v[i*2+1](4)*=2; p->MsE_v[i*2+1](5)*=2;
+        Ms = 0.5*(p.M[i*2+1] + p.M[i*2+1].transpose());
+        tensorToVoigtInPlace(Ms, p.Ms_v[i*2+1]);
+        p.MsE_v[i*2+1] = p.Ms_v[i*2+1];
+        p.MsE_v[i*2+1](3)*=2; p.MsE_v[i*2+1](4)*=2; p.MsE_v[i*2+1](5)*=2;
     }
 
     // Elasticity matrix
-    p->P_v.setZero();
-    p->P_v(0,0)=p->P_v(1,1)=p->P_v(2,2)=c11;
-    p->P_v(0,1)=p->P_v(1,0)=p->P_v(1,2)=p->P_v(2,1)=p->P_v(0,2)=p->P_v(2,0)=c12;
-    p->P_v(3,3)=p->P_v(4,4)=p->P_v(5,5)=c44;
+    p.P_v.setZero();
+    p.P_v(0,0)=p.P_v(1,1)=p.P_v(2,2)=c11;
+    p.P_v(0,1)=p.P_v(1,0)=p.P_v(1,2)=p.P_v(2,1)=p.P_v(0,2)=p.P_v(2,0)=c12;
+    p.P_v(3,3)=p.P_v(4,4)=p.P_v(5,5)=c44;
 
     // Hardening
-    p->H.resize(N, N);
+    p.H.resize(N, N);
     if (hard_mode == 2) {
-        p->A = PROPS[14]; p->q = PROPS[15]; p->h0 = PROPS[16]; p->ts = PROPS[17]; p->alfa = PROPS[18];
-        p->H.setConstant(p->A * p->q);
-        p->H.diagonal().setConstant(p->A);
+        p.A = PROPS[14]; p.q = PROPS[15]; p.h0 = PROPS[16]; p.ts = PROPS[17]; p.alfa = PROPS[18];
+        p.H.setConstant(p.A * p.q);
+        p.H.diagonal().setConstant(p.A);
     } else if (hard_mode == 1) {
-        p->iso_a = PROPS[14]; p->iso_b = PROPS[15];
+        p.iso_a = PROPS[14]; p.iso_b = PROPS[15];
     }
-
-    params_ = p;
 
     Eigen::Quaterniond q(qw, qx, qy, qz);
     q.normalize();
-    grain_.reset(new Grain(params_, q));
+    grain_ = new Grain(raw_params_, q);
+    initialized_ = true;
 }
 
 // === load_state ===
@@ -112,7 +109,7 @@ void CPUMAT::load_state(const double* STATEV)
     Eigen::Quaterniond q(STATEV[6], STATEV[7], STATEV[8], STATEV[9]);
     grain_->set_orientation(q);
 
-    int N = 2 * params_->num_slip_sys; // = 24 for FCC
+    int N = (int)grain_->num_slip_systems(); // = 24 for FCC
     std::vector<double> tc(N), shifts(N);
     for(int i=0;i<N;i++) tc[i] = STATEV[10+i];
     for(int i=0;i<N;i++) shifts[i] = STATEV[34+i];
@@ -133,7 +130,7 @@ void CPUMAT::save_state(double* STATEV) const
     Eigen::Quaterniond q = grain_->get_orientation();
     STATEV[6]=q.w(); STATEV[7]=q.x(); STATEV[8]=q.y(); STATEV[9]=q.z();
 
-    int N = 2 * params_->num_slip_sys;
+    int N = (int)grain_->num_slip_systems();
     const auto& tc = grain_->get_tc_all();
     const auto& sh = grain_->get_shifts_all();
     for(int i=0;i<N;i++){ STATEV[10+i] = tc[i]; STATEV[34+i] = sh[i]; }
@@ -160,12 +157,7 @@ void CPUMAT::step(const double* DSTRAN, double DTIME, double* STRESS, double* DD
     voigtToTensorInPlace(D_v_buf_, D_tensor);
     Eigen::Matrix3d L = D_tensor / DTIME;
 
-    try {
-        grain_->Simulate_Step(DTIME, L);
-    } catch (const std::exception&) {
-        PNEWDT = 0.5;
-        return;
-    }
+    grain_->Simulate_Step(DTIME, L);
 
     // Stress: lab frame -> Voigt -> Abaqus
     Eigen::Matrix3d s_lab = grain_->get_stress_lab();

@@ -1,7 +1,6 @@
 #pragma once
 #include "../cp_model/Grain.hpp"
 #include "cp_umat_types.hpp"
-#include <memory>
 
 class CPUMAT {
 public:
@@ -13,8 +12,9 @@ public:
     void step(const double* DSTRAN, double DTIME, double* STRESS, double* DDSDDE, double& PNEWDT);
 
 private:
-    MaterialParamsPtr params_;
-    std::unique_ptr<Grain> grain_;
+    bool initialized_ = false;
+    MaterialParams* raw_params_ = nullptr;  // heap-allocated, lifetime = singleton
+    Grain* grain_ = nullptr;
     Vector6d D_v_buf_;
     Matrix6d T_buf_;
 };
