@@ -149,7 +149,9 @@ void CPUMAT::step(const double* DSTRAN, double DTIME, double* STRESS, double* DD
     if (!grain_) return;
 
     // DSTRAN (Abaqus tensor components) -> D_v (Voigt engineering)
-    Eigen::Map<const Eigen::Matrix<double,6,1>> de_abaqus(DSTRAN);
+    // Manual copy: Abaqus Fortran arrays not Eigen-aligned
+    Eigen::Matrix<double,6,1> de_abaqus;
+    for (int i = 0; i < 6; i++) de_abaqus(i) = DSTRAN[i];
     D_v_buf_.noalias() = A_to_V() * de_abaqus;
 
     // D_v is strain INCREMENT (delta-epsilon), not rate. Convert to tensor L:
@@ -169,14 +171,16 @@ void CPUMAT::step(const double* DSTRAN, double DTIME, double* STRESS, double* DD
     Eigen::Matrix3d s_lab = grain_->get_stress_lab();
     Vector6d s_v;
     tensorToVoigtInPlace(s_lab, s_v);
-    Eigen::Map<Eigen::Matrix<double,6,1>> s_abaqus(STRESS);
-    s_abaqus.noalias() = V_to_A() * s_v;
+    s_v.noalias() = V_to_A() * s_v;
+    for (int i = 0; i < 6; i++) STRESS[i] = s_v(i);
 
     // DDSDDE: tangent in lab frame, Voigt -> Abaqus
     grain_->get_tangent_lab_into(T_buf_);
     // DDSDDE_abaqus = V_to_A * T * A_to_V, stored column-major (Fortran)
-    Eigen::Map<Matrix6d> ddsdde_map(DDSDDE);
-    ddsdde_map.noalias() = V_to_A() * T_buf_ * A_to_V();
+    Matrix6d D = V_to_A() * T_buf_ * A_to_V();
+    for (int i = 0; i < 6; i++)
+        for (int j = 0; j < 6; j++)
+            DDSDDE[i + j*6] = D(i, j);  // column-major (Fortran)
 }
 
 // === extern "C" UMAT entry ===
