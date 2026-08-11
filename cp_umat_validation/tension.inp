@@ -25,6 +25,7 @@ Single element uniaxial tension — CP UMAT v1 (implicit, FCC Cu, KM hardening)
 3, 3, 3, 0.0
 4, 3, 3, 0.0
 1, 1, 2, 0.0
+2, 2, 2, 0.0
 *STEP, NLGEOM=NO, INC=200
 *STATIC
 0.005, 1.0, 1e-08, 0.005

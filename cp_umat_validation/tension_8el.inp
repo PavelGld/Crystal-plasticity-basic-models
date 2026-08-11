@@ -56,6 +56,7 @@ Multi-element tension (2x2x2 elements) — CP UMAT v1
 8, 3, 3, 0.0
 9, 3, 3, 0.0
 1, 1, 2, 0.0
+3, 2, 2, 0.0
 *STEP, NLGEOM=NO, INC=200
 *STATIC
 0.005, 1.0, 1e-08, 0.005
