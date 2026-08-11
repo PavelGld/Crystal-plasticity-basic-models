@@ -185,17 +185,18 @@ extern "C" void umat_(
     char*   CMNAME, int& NDI,   int& NSHR,   int& NTENS, int& NSTATV,
     double* PROPS, int& NPROPS, double* COORDS, double* DROT,
     double& PNEWDT, double* CELENT, double* DFGRD0, double* DFGRD1,
-    int& NOEL, int& NPT, int& LAYER, int& KSPT, int& KINC)
+    int& NOEL, int& NPT, int& LAYER, int& KSPT, int* JSTEP, int& KINC)
 {
     static CPUMAT cpumat;
 
-    // Initialize on first call
     if (KINC == 1 && std::abs(STATEV[69] - 123456.0) > 0.5) {
         cpumat.init_from_props(PROPS, NPROPS);
+        cpumat.save_state(STATEV);
         STATEV[69] = 123456.0;
+    } else {
+        cpumat.load_state(STATEV);
     }
 
-    cpumat.load_state(STATEV);
     cpumat.step(DSTRAN, *DTIME, STRESS, DDSDDE, PNEWDT);
     cpumat.save_state(STATEV);
 }
@@ -210,11 +211,11 @@ extern "C" void umat(
     char*   CMNAME, int& NDI,   int& NSHR,   int& NTENS, int& NSTATV,
     double* PROPS, int& NPROPS, double* COORDS, double* DROT,
     double& PNEWDT, double* CELENT, double* DFGRD0, double* DFGRD1,
-    int& NOEL, int& NPT, int& LAYER, int& KSPT, int& KINC)
+    int& NOEL, int& NPT, int& LAYER, int& KSPT, int* JSTEP, int& KINC)
 {
     umat_(STRESS, STATEV, DDSDDE, SSE, SPD, SCD, RPL,
           DDSDDT, DRPLDE, DRPLDT, STRAN, DSTRAN, TIME, DTIME,
           TEMP, DTEMP, PREDEF, DPRED, CMNAME, NDI, NSHR, NTENS, NSTATV,
           PROPS, NPROPS, COORDS, DROT, PNEWDT, CELENT, DFGRD0, DFGRD1,
-          NOEL, NPT, LAYER, KSPT, KINC);
+          NOEL, NPT, LAYER, KSPT, JSTEP, KINC);
 }
