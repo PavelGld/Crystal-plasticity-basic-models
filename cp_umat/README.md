@@ -127,15 +127,26 @@ FCC {111}⟨110⟩ — 12 systems (doubled to 24 via ±b). Hardcoded (not in PRO
 
 ## Validation files
 
-`cp_umat_validation/` contains 4 single-element test cases:
-- `tension.inp` — uniaxial tension to ε = 0.1
-- `compression.inp` — uniaxial compression to ε = 0.1
-- `shear.inp` — simple shear to γ = 0.1
-- `cyclic.inp` — cyclic tension→compression→zero, 5% strain amplitude
+cp_umat_validation/ contains test cases:
 
-## Known limitations (v1)
+| File | Description |
+|------|-------------|
+| 	ension.inp | Single C3D8 element, uniaxial tension to eps=0.1 |
+| compression.inp | Single element, uniaxial compression |
+| shear.inp | Single element, simple shear |
+| cyclic.inp | Single element, cyclic tension-compression-zero |
+| 	ension_8el.inp | 2x2x2 cube, 8 elements, uniaxial tension |
+| 	ension_125el.inp | 5x5x5 cube, 125 elements, uniaxial tension |
 
-- NLGEOM=NO only (small strain); no DROT/DFGRD handling
-- Single grain per integration point (no RVE averaging)
-- FCC only (slip systems hardcoded)
-- No temperature/rate dependence beyond the power law
+**Mesh generators:** gen_1000el.py, gen_125el.py — Python scripts
+(run with baqus python) that generate structured cube meshes with
+elements up to 1000. Edit 
+ = 10 to change size.
+
+**ODB extraction:** extract_125el.py — example script for extracting
+stress fields from Abaqus ODB.
+
+**Important:** run multi-element tests with cpus=1 until the
+static CPUMAT singleton is removed (see DEBUG_CONTEXT.md, point 4).
+
+
