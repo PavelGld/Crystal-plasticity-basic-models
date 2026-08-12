@@ -1,0 +1,25 @@
+import random
+random.seed(42)
+qw,qx,qy,qz = random.gauss(0,1),random.gauss(0,1),random.gauss(0,1),random.gauss(0,1)
+n = (qw*qw+qx*qx+qy*qy+qz*qz)**0.5
+qw/=n; qx/=n; qy/=n; qz/=n
+
+f = open('cp_umat_validation/tension_multi_1el.inp', 'w')
+f.write('*HEADING\n1 element, multi-PROPS format (CONSTANTS=24)\n')
+f.write('*NODE\n1, 0.0, 0.0, 0.0\n2, 1.0, 0.0, 0.0\n3, 1.0, 1.0, 0.0\n4, 0.0, 1.0, 0.0\n')
+f.write('5, 0.0, 0.0, 1.0\n6, 1.0, 0.0, 1.0\n7, 1.0, 1.0, 1.0\n8, 0.0, 1.0, 1.0\n')
+f.write('*ELEMENT, TYPE=C3D8, ELSET=EALL\n1, 1,2,3,4, 5,6,7,8\n')
+f.write('*SOLID SECTION, ELSET=EALL, MATERIAL=CP\n')
+f.write('*MATERIAL, NAME=CP\n')
+f.write('*USER MATERIAL, CONSTANTS=24\n')
+f.write('0.0, 106750.0, 60410.0, 28340.0, 2.0, 2.0, 1.0, 6.0\n')
+f.write('0.588235, 50.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0\n')
+f.write('115.0, 34.0, 2.25, 1\n')
+f.write('%.6f, %.6f, %.6f, %.6f\n' % (qw,qx,qy,qz))
+f.write('*DEPVAR\n70\n')
+f.write('*BOUNDARY\n1, 3, 3, 0.0\n2, 3, 3, 0.0\n3, 3, 3, 0.0\n4, 3, 3, 0.0\n1, 1, 2, 0.0\n2, 2, 2, 0.0\n')
+f.write('*STEP, NLGEOM=NO, INC=200\n*STATIC\n0.005, 1.0, 1e-08, 0.005\n')
+f.write('*BOUNDARY\n5, 3, 3, 0.1\n6, 3, 3, 0.1\n7, 3, 3, 0.1\n8, 3, 3, 0.1\n')
+f.write('*OUTPUT, FIELD\n*NODE OUTPUT\nU\n*ELEMENT OUTPUT\nS, SDV\n*END STEP\n')
+f.close()
+print('OK')

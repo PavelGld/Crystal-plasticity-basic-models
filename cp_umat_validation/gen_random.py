@@ -1,7 +1,7 @@
 # Generate cube mesh with random orientations per element
 import random, sys
 
-n = 5  # elements per side
+n = 2   # elements per side (2x2x2 = 8 elements)
 seed = 42  # reproducibility
 
 nx, ny, nz = n+1, n+1, n+1
@@ -44,13 +44,19 @@ with open('cp_umat_validation/' + out, 'w') as f:
     f.write('*SOLID SECTION, ELSET=EALL, MATERIAL=CPFCC\n')
     f.write('*MATERIAL, NAME=CPFCC\n')
 
-    # Base PROPS (19 for KM) + 1 (n_elems) + n_elems*4 (quaternions)
+    # Base PROPS (19 for KM): indices 0-18
+    # [0] dummy, [1-3] c11,c12,c44, [4] hard_mode, [5] rot_mode, [6] integ_mode, [7] tc0
+    # [8] strain_rate_infl, [9] n_power, [10-13] placeholder quaternion, [14-18] KM
     f.write('*USER MATERIAL, CONSTANTS=%d\n' % (19 + 1 + n_elems * 4))
 
-    # Line 1: dummy, c11,c12,c44, hard_mode, rot_mode, integ_mode, tc0
+    # Line 1: dummy, c11,c12,c44, hard_mode, rot_mode, integ_mode, tc0 (8 values)
     f.write('0.0, 106750.0, 60410.0, 28340.0, 2.0, 2.0, 1.0, 6.0\n')
-    # Line 2: strain_rate_infl, n_power, KA, Kq, Kh0, Kts, Kalfa, n_elems
-    f.write('0.588235, 50.0, 1.0, 2.0, 115.0, 34.0, 2.25, %d\n' % n_elems)
+    # Line 2: strain_rate_infl, n_power, Qw,Qx,Qy,Qz(placeholder), KA, Kq (8 values)
+    f.write('0.588235, 50.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0\n')
+    # Line 3: Kh0, Kts, Kalfa (indices 16-18)
+    f.write('115.0, 34.0, 2.25\n')
+    # Line 4: n_elems (index 19)
+    f.write('%d\n' % n_elems)
 
     # Random quaternions: 6 per line (4 doubles * 6 = 24, but we do 2 quaternions = 8 values per line)
     quats = []

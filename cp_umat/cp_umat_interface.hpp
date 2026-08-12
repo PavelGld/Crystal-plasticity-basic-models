@@ -6,15 +6,16 @@ class CPUMAT {
 public:
     static constexpr int NSTATV = 70;
 
-    void init_from_props(const double* PROPS, int NPROPS);
-    void load_state(const double* STATEV);
-    void save_state(double* STATEV) const;
-    void step(const double* DSTRAN, double DTIME, double* STRESS, double* DDSDDE, double& PNEWDT);
+    void init_params(const double* PROPS, int NPROPS);
+    Grain* grain() { return grain_; }
+    void set_initial_orientation(int el_idx);
+    static void load_state(Grain* g, const double* STATEV);
+    static void save_state(const Grain* g, double* STATEV);
+    void step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, double* DDSDDE, double& PNEWDT);
 
 private:
-    bool initialized_ = false;
-    MaterialParams* raw_params_ = nullptr;  // heap-allocated, lifetime = singleton
-    Grain* grain_ = nullptr;
-    Vector6d D_v_buf_;
-    Matrix6d T_buf_;
+    const MaterialParams* params_ = nullptr;
+    int n_elems_ = 0;
+    double* quat_data_ = nullptr;  // raw heap: n_elems * 4 doubles — no Eigen in static storage
+    Grain* grain_ = nullptr;        // single reusable grain
 };
