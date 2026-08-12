@@ -44,13 +44,15 @@ static void build_slip_systems(MaterialParams& p)
     }
 }
 
+// === init_params: standard 19-PROPS format, same as single-element ===
 void CPUMAT::init_params(const double* PROPS, int NPROPS)
 {
-    int hard_mode = (int)PROPS[4];
-    int expected_base = (hard_mode == 2) ? 19 : (hard_mode == 1) ? 16 : 14;
-    n_elems_ = (int)PROPS[expected_base];
-    int expected = expected_base + 1 + n_elems_ * 4;
+    // Parse hard_mode first to know expected NPROPS
+    int hard_mode = -1;
+    if (NPROPS >= 5) hard_mode = (int)PROPS[4];
+    int expected = (hard_mode == 2) ? 19 : (hard_mode == 1) ? 16 : 14;
     if (NPROPS != expected) return;
+    if (hard_mode < 0 || hard_mode > 2) return;
 
     auto p = new MaterialParams();
     p->hard_mode = hard_mode;
@@ -79,31 +81,13 @@ void CPUMAT::init_params(const double* PROPS, int NPROPS)
     }
 
     params_ = p;
-
-    // Quaternion array (raw doubles, no Eigen in static storage)
-    int q_off = expected_base + 1;
-    quat_data_ = new double[n_elems_ * 4];
-    for (int i = 0; i < n_elems_; i++)
-        for (int j = 0; j < 4; j++)
-            quat_data_[i*4 + j] = PROPS[q_off + i*4 + j];
 }
 
 Grain* CPUMAT::grain()
 {
-    if (!grain_)
+    if (!grain_ && params_)
         grain_ = new Grain(params_, Eigen::Quaterniond::Identity());
     return grain_;
-}
-
-void CPUMAT::set_initial_orientation(int el_idx)
-{
-    if (!grain_) return;
-    double qw=1,qx=0,qy=0,qz=0;
-    if (quat_data_ && el_idx >= 0 && el_idx < n_elems_) {
-        double* qd = quat_data_;
-        qw = qd[el_idx*4]; qx = qd[el_idx*4+1]; qy = qd[el_idx*4+2]; qz = qd[el_idx*4+3];
-    }
-    grain_->set_orientation(Eigen::Quaterniond(qw,qx,qy,qz));
 }
 
 void CPUMAT::load_state(Grain* g, const double* STATEV)
@@ -175,7 +159,11 @@ extern "C" void umat_(
 
     bool first = (std::abs(STATEV[69] - 123456.0) > 0.5);
     if (first) {
-        cpumat.set_initial_orientation(NOEL - 1);
+        // Initial orientation from PROPS[10-13] for this element
+        Eigen::Quaterniond q(PROPS[10], PROPS[11], PROPS[12], PROPS[13]);
+        q.normalize();
+        g->set_orientation(q);
+        g->reset_state();  // clean state for this IP (tc=tc0, stress=0, shifts=0)
         CPUMAT::save_state(g, STATEV);
         STATEV[69] = 123456.0;
     } else {
