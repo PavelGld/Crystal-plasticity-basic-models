@@ -11,3 +11,29 @@ nul
 *.exe
 tests_output.txt
 tests_error.txt
+# Abaqus output
+*.com
+*.dat
+*.log
+*.msg
+*.prt
+*.sta
+*.odb
+*.023
+*.mdl
+*.stt
+*.sim
+*.par
+*.pes
+*.pmg
+*.ipm
+*.cid
+*.lck
+*.env
+*.abq
+# Build artifacts
+*.obj
+*.exe
+*.lib
+*.exp
+
