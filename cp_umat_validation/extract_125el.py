@@ -1,5 +1,5 @@
 from odbAccess import *
-odb = openOdb('tension_125el.odb')
+odb = openOdb('tension_125el_random.odb')
 fL = odb.steps['Step-1'].frames[-1]
 s = fL.fieldOutputs['S'].values
 vals = [v.data[2] for v in s]
