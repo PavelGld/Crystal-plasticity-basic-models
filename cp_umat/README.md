@@ -1,6 +1,8 @@
 ﻿# CP-UMAT: Crystal Plasticity UMAT for Abaqus/Standard
 
 Single-grain per integration point. Implicit Newton–Raphson integration with consistent tangent.
+
+**Status (2026-08-12):** Bugs #1–4 from review implemented. Single-element random orientation now converges. Multi-element random orientations still fail — see § Known Issues.
 FCC {111}⟨110⟩ slip systems (hardcoded), Hutchinson power-law, Kocks-Mecking or isotropic hardening.
 
 ## Quick Start
