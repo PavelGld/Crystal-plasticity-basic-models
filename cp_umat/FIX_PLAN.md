@@ -1,7 +1,84 @@
-# CP-UMAT Fix Plan — по результатам ревью (2026-08-12)
+# CP-UMAT Fix Plan — IMPLEMENTED + Open Issue
 
-Статус: **ЧАСТИЧНО РЕАЛИЗОВАНО** (2026-08-12). Остались нюансы с multi-element сходимостью.
-Цель: починить падение многоэлементного расчёта со случайными ориентациями (`TOO MANY ATTEMPTS`).
+Статус: **РЕАЛИЗОВАНО** (2026-08-12). Все баги #1-4 исправлены и проверены. Остаётся открытый issue с multi-element в Abaqus (см. § Open Issue).
+
+---
+
+## Реализованные исправления
+
+### Баг #1 (ПЕРВОПРИЧИНА): Eigen aliasing в CPUMAT::step
+
+```cpp
+// БЫЛО:
+sv.noalias() = V_to_A() * sv;
+// СТАЛО:
+sv = (V_to_A() * sv).eval();
+```
+
+`noalias()` при самоприсваивании заставляет Eigen писать результат прямо в `sv` во время умножения — строка 5 матрицы `V_to_A` (Abaqus-компонента σ₂₃) читает `sv(3)`, который уже перезаписан строкой 3. Каждый вызов UMAT возвращал `STRESS[σ₂₃] = σ₁₂/2`, а истинное σ₂₃ терялось.
+
+Почему не видно раньше:
+- Баг живёт только в UMAT-обёртке (standalone Grain/RVE его не видят)
+- При identity-растяжении σ₁₂ = σ₂₃ = 0 — все identity-кейсы проходили
+- DDSDDE считался через те же матрицы правильно → Abaqus получал верный тангенс + неверное напряжение
+
+### Баг #2: P_v(3,3) = c44 → 2·c44
+
+В doubled-shear Voigt конвенции корректный кубический закон требует `P_v(3,3..5,5) = 2·c44`.
+
+### Баг #3: load_state не восстанавливает H (Kocks-Mecking)
+
+Добавлен вызов `update_H_KM_if_needed()` после `set_tc_all()` в load_state.
+
+### Баг #4: Протухший тангенс при провале Ньютона
+
+Добавлен флаг `step_failed`, при срабатывании которого `PNEWDT = 0.25` (Abaqus режет шаг).
+
+### Баг #5: Chain tangent через подшаги
+
+`tangent_buf` накапливается по цепочке: `C ← J⁻¹(C_prev + w·P_eff)` где w = dt_sub/dt_inc.
+
+---
+
+## Результаты проверок
+
+| Проверка | Результат |
+|----------|-----------|
+| Standalone тесты (14) | ✅ 240 assertions |
+| Single-element identity | ✅ 49.78 МПа |
+| Single-element random | ✅ 28.09 МПа |
+| Multi-element identity (8-1000 el) | ✅ 49.78 МПа uniform |
+| Mini-FEM 8 random q (fe_test.cpp) | ✅ converges, 34 increments |
+
+---
+
+## OPEN ISSUE: Multi-element в Abaqus
+
+**Симптом:** `tension_8el_random.inp` падает с `TOO MANY ATTEMPTS` на инкременте 1. Все 64 IP дают одинаковый stress (9.66 МПа) несмотря на разные кватернионы в PROPS.
+
+**Диагностика:**
+- Mini-FEM тест (тот же код) работает → логика UMAT корректна
+- Все IP дают одинаковый stress → ориентация из PROPS не применяется в Abaqus-контексте
+
+**Непроверенные гипотезы:**
+1. Abaqus инициализирует STATEV не нулями → guard `STATEV[69] != 123456` срабатывает некорректно
+2. Порядок вызовов UMAT в Abaqus отличается от mini-FEM (когда set_orientation vs load_state вызывается)
+3. Static CPUMAT + grain_ singleton взаимодействует с Abaqus иначе чем с мини-МКЭ
+
+**Следующие шаги:**
+- Добавить SDV output в ODB (`*ELEMENT OUTPUT, DIRECTION=YES`)
+- Записать ориентацию каждого IP в STATEV и проверить в ODB
+- Возможно: перейти на per-IP Grain objects (устранить singleton)
+
+---
+
+## Затрагиваемые файлы
+
+| Файл | Что меняется |
+|------|--------------|
+| `cp_model/Grain.hpp` | chain tangent, step_failed, substep cap, DS_CRITICAL_IMPL=2e-3 |
+| `cp_umat/cp_umat.cpp` | aliasing fix, PNEWDT, diagnostics |
+| `tests.cpp` | новые doctest-тесты |
 
 ---
 
