@@ -177,9 +177,10 @@ public:
 
 private:
     mutable Matrix6d T_voigt_buf;
+    mutable Matrix6d T_voigt_inv_buf;
     mutable bool T_voigt_valid = false;
     mutable Eigen::Matrix3d exp_buf;
-    void computeVoigtRotationInPlace(Matrix6d& T) const;
+    void computeVoigtRotationInPlace(Matrix6d& T, const Eigen::Matrix3d& R) const;
 };
 
 #ifndef ABAQUS_UMAT
@@ -612,7 +613,8 @@ inline void Grain::solve_implicit(double dt, int depth)
 #ifndef ABAQUS_UMAT
                 throw std::runtime_error("implicit Newton failed to converge at max fallback depth");
 #else
-                return; // UMAT: silently skip, Abaqus will cut step
+                tangent_valid = false;  // signal: return elastic matrix, stale tangent discarded
+                return;
 #endif
             }
         solve_implicit(0.5 * dt, depth + 1);
@@ -779,6 +781,7 @@ inline void Grain::reset_state()
     Wp.setZero();
     L.setZero();
     T_voigt_valid = false;
+    tangent_valid = false;
 
     int n = 2 * params->num_slip_sys;
     for (int i = 0; i < n; i++)
@@ -856,7 +859,7 @@ inline Eigen::Matrix3d Grain::get_stress_lab() const
     return S_buf;
 }
 
-inline void Grain::computeVoigtRotationInPlace(Matrix6d& T) const {
+inline void Grain::computeVoigtRotationInPlace(Matrix6d& T, const Eigen::Matrix3d& R) const {
     T.setZero();
     for (int p = 0; p < 3; ++p)
         for (int q = 0; q < 3; ++q) {
@@ -866,39 +869,53 @@ inline void Grain::computeVoigtRotationInPlace(Matrix6d& T) const {
                 for (int j = 0; j < 3; ++j) {
                     int I = tensorToVoigtIndex(i, j);
                     bool I_shear = (i != j);
-                    double v = R_buf(i, p) * R_buf(j, q);
-                    if (!P_shear && !I_shear)       T(I, P) += v;          // норм→норм
-                    else if (P_shear && I_shear)    T(I, P) += v;          // сдв→сдв (суммируется дважды)
-                    else if (!P_shear && I_shear)   T(I, P) += v * 0.5;          // норм→сдвиг: 1.0 (v(сдвиг)=2·σ, σ'_pp=R_pi·R_pj·σ_ij)
-                    else                            T(I, P) += v * 2.0;    // сдвиг→норм: 2.0 (2·σ'_pq=2·R_pi·R_qi·σ_ii)
+                    double v = R(i, p) * R(j, q);
+                    if (!P_shear && !I_shear)       T(I, P) += v;          // norm->norm
+                    else if (P_shear && I_shear)    T(I, P) += v * 0.5;    // shear->shear
+                    else if (!P_shear && I_shear)   T(I, P) += v;          // norm->shear
+                    else                            T(I, P) += v * 0.5;    // shear->norm
                 }
         }
 }
 
 inline void Grain::get_elasticity_lab_into(Matrix6d& result) const {
     if (!T_voigt_valid) {
-        computeVoigtRotationInPlace(T_voigt_buf);
+        computeVoigtRotationInPlace(T_voigt_buf, R_buf);
+        computeVoigtRotationInPlace(T_voigt_inv_buf, R_buf.transpose());
         T_voigt_valid = true;
     }
     Buf_P.noalias() = T_voigt_buf * params->P_v;
-    result.noalias() = Buf_P * T_voigt_buf.transpose();
+    result.noalias() = Buf_P * T_voigt_inv_buf;
 }
 
 inline void Grain::get_tangent_crystal_into(Matrix6d& result) const
 {
-    if (!tangent_valid)
+    if (!tangent_valid) {
+#ifndef ABAQUS_UMAT
         throw std::runtime_error("get_tangent_crystal_into: no implicit step performed yet");
+#else
+        result = params->P_v;
+        return;
+#endif
+    }
     result = tangent_buf;
 }
 
 inline void Grain::get_tangent_lab_into(Matrix6d& result) const
 {
-    if (!tangent_valid)
+    if (!tangent_valid) {
+#ifndef ABAQUS_UMAT
         throw std::runtime_error("get_tangent_lab_into: no implicit step performed yet");
+#else
+        get_elasticity_lab_into(result);
+        return;
+#endif
+    }
     if (!T_voigt_valid) {
-        computeVoigtRotationInPlace(T_voigt_buf);
+        computeVoigtRotationInPlace(T_voigt_buf, R_buf);
+        computeVoigtRotationInPlace(T_voigt_inv_buf, R_buf.transpose());
         T_voigt_valid = true;
     }
     Buf_P.noalias() = T_voigt_buf * tangent_buf;
-    result.noalias() = Buf_P * T_voigt_buf.transpose();
+    result.noalias() = Buf_P * T_voigt_inv_buf;
 }

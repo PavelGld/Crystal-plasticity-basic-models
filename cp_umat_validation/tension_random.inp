@@ -26,9 +26,9 @@ Single element tension with random initial orientation
 4, 3, 3, 0.0
 1, 1, 2, 0.0
 2, 2, 2, 0.0
-*STEP, NLGEOM=NO, INC=200
+*STEP, NLGEOM=NO, INC=500
 *STATIC
-0.005, 1.0, 1e-10, 0.005
+0.002, 1.0, 1e-12, 0.002
 *BOUNDARY
 5, 3, 3, 0.1
 6, 3, 3, 0.1

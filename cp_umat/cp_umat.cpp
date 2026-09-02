@@ -68,7 +68,7 @@ void CPUMAT::init_params(const double* PROPS, int NPROPS)
     p->P_v.setZero();
     p->P_v(0,0)=p->P_v(1,1)=p->P_v(2,2)=c11;
     p->P_v(0,1)=p->P_v(1,0)=p->P_v(1,2)=p->P_v(2,1)=p->P_v(0,2)=p->P_v(2,0)=c12;
-    p->P_v(3,3)=p->P_v(4,4)=p->P_v(5,5)=c44;
+    p->P_v(3,3)=p->P_v(4,4)=p->P_v(5,5)=2.0*c44;
 
     int N = p->num_slip_sys * 2;
     p->H.resize(N, N);
@@ -102,6 +102,7 @@ void CPUMAT::load_state(Grain* g, const double* STATEV)
     for (int i=0;i<N;i++) tc[i]=STATEV[10+i];
     for (int i=0;i<N;i++) shifts[i]=STATEV[34+i];
     g->set_tc_all(tc); g->set_shifts_all(shifts);
+    if (g->get_H().rows() > 0) g->update_H_KM();  // recompute H from restored tc
     g->set_sim_time(STATEV[67]); g->set_acc_def(STATEV[68]);
 }
 

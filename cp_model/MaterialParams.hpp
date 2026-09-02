@@ -108,7 +108,7 @@ inline MaterialParams::MaterialParams(const std::string& filename) {
     P_v.setZero();
     P_v(0,0) = P_v(1,1) = P_v(2,2) = c1;
     P_v(0,1) = P_v(1,0) = P_v(1,2) = P_v(2,1) = P_v(0,2) = P_v(2,0) = c2;
-    P_v(3,3) = P_v(4,4) = P_v(5,5) = c3;
+    P_v(3,3) = P_v(4,4) = P_v(5,5) = 2.0 * c3;
 
     H.resize(num_slip_sys * 2, num_slip_sys * 2);
 
