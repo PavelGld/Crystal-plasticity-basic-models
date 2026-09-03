@@ -18,7 +18,8 @@ C++ реализация модели кристаллической пласт�
 - **Жёсткое и мягкое нагружение** (заданный L или заданный dS/dt)
 - **Параллелизация** через OpenMP
 - **Неявная схема интегрирования** (Newton-Raphson) с консистентным тангенсом — для больших шагов и встраивания в Abaqus/Standard (UMAT)
-- **Multi-element UMAT validation** — 8 and 343 element cubes converge with texture-induced stress variation
+- **Multi-element UMAT** — thread-safe реализация с `__declspec(thread)`, валидирована на 8 и 343 элементах
+- **Параллельное выполнение в Abaqus** — ускорение ~3.7x на 4 ядрах (343 элемента: 48 мин vs ~3 часа)
 - Валидация текстур через MTEX pole figures
 
 ## Валидация текстур
@@ -124,7 +125,7 @@ tests.exe -s                      # с выводом успешных пров�
 tests.exe --test-case="no rotation"  # фильтр по имени теста
 ```
 
-Тесты: проверка поворота зёрен, базовой функциональности RVE, верификация кривых напряжение-деформация, неявная схема с консистентным тангенсом, multi-element UMAT (18 тестов, 256 checks, допуск 5%, два [slow]).
+Тесты: проверка поворота зёрен, базовой функциональности RVE, верификация кривых напряжение-деформация, неявная схема с консистентным тангенсом, multi-element UMAT, thread-safety (18 тестов, 256 checks, допуск 5%, два [slow]).
 
 ### Построение полюсных фигур (MATLAB + MTEX)
 
@@ -212,6 +213,22 @@ EigenProject/
 ├── rve_validation_impl.txt        — конфиг RVE для неявной схемы
 ├── grain_test_iso_impl.txt        — изотропное упрочнение + integ_mode=1
 ├── tests.cpp                     — автоматизированные тесты (7 тестов)
+│
+├── cp_model/                     — header-only библиотека (thread-safe)
+│   ├── tensor_utils.hpp          — Voigt ↔ tensor conversion
+│   ├── MaterialParams.hpp        — структура материала
+│   └── Grain.hpp                 — класс зерна (интеграция)
+│
+├── cp_umat/                      — Abaqus/Standard UMAT
+│   ├── cp_umat.cpp               — UMAT entry (thread-safe, __declspec(thread))
+│   ├── cp_umat_interface.hpp     — CPUMAT class
+│   ├── cp_umat_types.hpp         — A_to_V / V_to_A conversion
+│   └── build_cp_umat.bat         — сборка (MSVC, /GR- /EHsc-)
+│
+├── cp_umat_validation/           — тесты и .inp файлы для Abaqus
+│   ├── tension_8el_random.inp    — 8-элементный тест
+│   ├── tension_343el_random.inp  — 343-элементный тест (7×7×7)
+│   └── extract_s33.py            — извлечение S33 из ODB
 │
 ├── rotation_validation_test_results/
 │   ├── rotation_validation.cpp   — валидация: unit-тесты + текстуры
