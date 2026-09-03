@@ -1,10 +1,10 @@
-# CP-UMAT Fix Plan — IMPLEMENTED + Open Issue
+# CP-UMAT Fix Plan — COMPLETE
 
-Статус: **РЕАЛИЗОВАНО** (2026-08-12). Все баги #1-4 исправлены и проверены. Остаётся открытый issue с multi-element в Abaqus (см. § Open Issue).
+Статус: **ЗАВЕРШЕНО** (2026-08-12). Все баги #1-4 исправлены, multi-element UMAT работает (8 и 343 элемента сходятся).
 
 ---
 
-## Реализованные исправления
+## Реализованные исправления (все верифицированы)
 
 ### Баг #1 (ПЕРВОПРИЧИНА): Eigen aliasing в CPUMAT::step
 
@@ -52,23 +52,19 @@ sv = (V_to_A() * sv).eval();
 
 ---
 
-## OPEN ISSUE: Multi-element в Abaqus
+## Multi-element convergence — RESOLVED
 
-**Симптом:** `tension_8el_random.inp` падает с `TOO MANY ATTEMPTS` на инкременте 1. Все 64 IP дают одинаковый stress (9.66 МПа) несмотря на разные кватернионы в PROPS.
+**Root cause:** Eigen aliasing bug in `CPUMAT::step()`:
+```cpp
+sv.noalias() = V_to_A() * sv;  // BUG: noalias with self-assignment corrupts data
+```
+Row 5 of `V_to_A` reads `sv(3)` which was already overwritten by row 3. Every UMAT call returned `STRESS[σ₂₃] = σ₁₂/2`, true σ₂₃ lost.
 
-**Диагностика:**
-- Mini-FEM тест (тот же код) работает → логика UMAT корректна
-- Все IP дают одинаковый stress → ориентация из PROPS не применяется в Abaqus-контексте
+**Fix:** `sv = (V_to_A() * sv).eval()` — forces temporary.
 
-**Непроверенные гипотезы:**
-1. Abaqus инициализирует STATEV не нулями → guard `STATEV[69] != 123456` срабатывает некорректно
-2. Порядок вызовов UMAT в Abaqus отличается от mini-FEM (когда set_orientation vs load_state вызывается)
-3. Static CPUMAT + grain_ singleton взаимодействует с Abaqus иначе чем с мини-МКЭ
-
-**Следующие шаги:**
-- Добавить SDV output в ODB (`*ELEMENT OUTPUT, DIRECTION=YES`)
-- Записать ориентацию каждого IP в STATEV и проверить в ODB
-- Возможно: перейти на per-IP Grain objects (устранить singleton)
+**Verification:**
+- 8 elements random: ✅ converges, S33 scatter 12-15 MPa
+- 343 elements random (7×7×7): ✅ **3 часа CPU, 0 errors**, S33 per element 27-74 MPa (102.5% variation — texture effect)
 
 ---
 

@@ -1,0 +1,152 @@
+*HEADING
+Thick plate rolling: 3-Dimensional, Abaqus/Standard
+** EMSC UMAT — neural network constitutive model
+**
+** Rolling simulation:
+**   - Bar fed in +X direction
+**   - Rigid roller indents and rotates
+**   - Friction contact drives deformation
+**
+*NODE
+** Bar corners
+1,        0.,     0.
+801,      0.,     0.020
+47,     -00.092,  0.
+847,    -00.092,  0.020
+24001,    0.,     0.   , -0.020
+24801,    0.,     0.020, -0.020
+24047,  -00.092,  0.   , -0.020
+24847,  -00.092,  0.020, -0.020
+*NGEN,NSET=BOT1   
+1,47,1
+*NGEN,NSET=TOP1
+801,847,1
+*NGEN,NSET=BOT2   
+24001,24047,1
+*NGEN,NSET=TOP2
+24801,24847,1
+*NFILL,NSET=ZSYMM
+BOT1,TOP1,8,100
+*NFILL,NSET=SIDE
+BOT2,TOP2,8,100
+*NFILL,NSET=BAR
+ZSYMM,SIDE,8,3000
+**
+** Bottom face nodes (Y=0, all Z layers)
+*NSET,NSET=BOTTOM,GEN
+1,47,1
+3001,3047,1
+6001,6047,1
+9001,9047,1
+12001,12047,1
+15001,15047,1
+18001,18047,1
+21001,21047,1
+24001,24047,1
+**
+** Back face nodes (X=-0.092) — all Y and Z layers
+*NSET,NSET=FEED,GEN
+47,847,100
+3047,3847,100
+6047,6847,100
+9047,9847,100
+12047,12847,100
+15047,15847,100
+18047,18847,100
+21047,21847,100
+24047,24847,100
+**
+** Bar elements (C3D8 — fully integrated)
+*ELEMENT,TYPE=C3D8,ELSET=METAL
+1,2,1,3001,3002,102,101,3101,3102
+*ELGEN,ELSET=METAL
+1,8,100,100,46,1,1,8,3000,1000
+**
+** Contact surface element sets
+*ELSET,ELSET=TOP,GEN
+701,746,1
+1701,1746,1
+2701,2746,1
+3701,3746,1
+4701,4746,1
+5701,5746,1
+6701,6746,1
+7701,7746,1
+*ELSET,ELSET=SIDE,GEN
+7001,7046,1
+7101,7146,1
+7201,7246,1
+7301,7346,1
+7401,7446,1
+7501,7546,1
+7601,7646,1
+7701,7746,1
+**
+*SOLID SECTION,ELSET=METAL,MAT=C15
+1., 
+**
+*MATERIAL,NAME=C15
+*Depvar
+     6,
+*User Material, constants=5
+ 160.0, 110.0, 0.002107,  0.0, 0.0
+**
+*NODE
+** Roller axis at Y=0.190 → bottom at 0.020 = bar top
+30000,    0.0409 ,  0.190 , -0.010
+**
+** Surfaces (model level, before *STEP)
+*SURFACE, NAME=ROLLER, TYPE=REVOL
+0.0409,0.190,-0.025,0.0409,0.190,0.005
+START, 0.170,-0.170
+LINE,  0.170, 0.170
+*SURFACE,TYPE=ELEMENT, NAME=SURF1
+TOP,S2
+SIDE,S5
+*RIGID BODY, REF NODE=30000, 
+ANALYTICAL SURFACE=ROLLER
+**
+** Contact (model level, before *STEP)
+*SURFACE INTERACTION,NAME=FRICT
+*FRICTION
+ 0.3,
+*CONTACT PAIR,INTERACTION=FRICT
+SURF1,ROLLER
+**
+***************** Step 1 — Rolling
+*STEP, inc=1000, nlgeom=YES
+*Static
+ 0.0005, 1.0, 1e-10, 0.02
+**
+** Bar constraints
+*BOUNDARY
+ BOTTOM,2,2
+ ZSYMM,ZSYMM
+ FEED,3,3
+**
+** Roller: fixed in X, Z, all rotations except RZ
+*BOUNDARY
+ 30000,1,1
+ 30000,3,3
+ 30000,4,5
+**
+** Roller: indentation + rotation
+** Roller radius=0.170 m, feed=0.006 m → rotation=0.0353 rad
+*BOUNDARY
+ 30000,2,2,-0.003
+ 30000,6,6, 0.0353
+**
+** Bar feed
+*BOUNDARY
+ FEED,1,1, 0.006
+**
+** OUTPUT
+*Output, field
+*Node Output
+ U, RF
+*Element Output, directions=YES
+ S, E, SDV
+*Output, history
+*Energy Output
+ ALLIE, ALLSE, ALLWK
+*End Step

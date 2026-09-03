@@ -1,0 +1,71 @@
+*HEADING
+EMSC UMAT + contact test — single element under rigid flat punch
+**
+*NODE
+1, 0., 0., 0.
+2, 1., 0., 0.
+3, 1., 1., 0.
+4, 0., 1., 0.
+5, 0., 0., 1.
+6, 1., 0., 1.
+7, 1., 1., 1.
+8, 0., 1., 1.
+**
+** Rigid punch reference node — above the cube
+100, 0.5, 1.2, 0.5
+**
+*ELEMENT,TYPE=C3D8,ELSET=CUBE
+1, 1,2,3,4,5,6,7,8
+**
+*SOLID SECTION,ELSET=CUBE,MAT=EMSC
+1.,
+**
+*MATERIAL,NAME=EMSC
+*Depvar
+     6,
+*User Material, constants=5
+ 160.0, 110.0, 0.002107,  0.0, 0.0
+**
+** Bottom face fixed
+*NSET,NSET=BOTTOM
+1,2,5,6
+**
+** Top face for contact (face S4 = +Y on unit cube)
+*SURFACE,TYPE=ELEMENT,NAME=TOP_SURF
+CUBE,S4
+**
+** Rigid flat surface
+*RIGID BODY, REF NODE=100
+*SURFACE,TYPE=ELEMENT,NAME=PUNCH
+CUBE,S4
+**
+*SURFACE INTERACTION,NAME=FRICT
+*FRICTION
+ 0.1,
+*CONTACT PAIR,INTERACTION=FRICT
+TOP_SURF,PUNCH
+**
+*STEP, inc=100
+*Static
+ 0.01, 1.0, 1e-08, 1.0
+**
+*BOUNDARY
+ BOTTOM,2,2
+ BOTTOM,3,3
+ 100,1,1
+ 100,3,3
+ 100,4,6
+**
+** Punch moves down 0.1 (10% compression)
+*BOUNDARY
+ 100,2,2,-0.1
+**
+*Output, field
+*Node Output
+ U, RF
+*Element Output, directions=YES
+ S, E, SDV
+*Output, history
+*Energy Output
+ ALLIE, ALLSE, ALLWK
+*End Step

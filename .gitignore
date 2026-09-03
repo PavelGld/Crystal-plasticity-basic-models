@@ -37,3 +37,7 @@ tests_error.txt
 *.lib
 *.exp
 
+
+# Reference UMAT (external repo)
+UMAT/UMAT/
+

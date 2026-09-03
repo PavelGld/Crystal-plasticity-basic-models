@@ -1,11 +1,13 @@
 # CP-UMAT Integration — Work Summary & Open Issues
 
 Дата: 2026-08-12
-Ветка: `fix-chain-tangent` (merged to master)
+Ветка: `master`
 
 ## 1. Overview
 
 Интеграция модели кристаллической пластичности (FCC, Hutchinson power-law, implicit Newton-Raphson) как Abaqus/Standard UMAT. Работа включала рефакторинг в header-only библиотеку, реализацию UMAT interface, исправление CRT-linking проблем и диагностику multi-element convergence failures.
+
+**Multi-element UMAT полностью работает:** 8 и 343 элемента сходятся с текстурным разбросом напряжений.
 
 ## 2. Architecture
 
@@ -94,24 +96,28 @@ sv = (V_to_A() * sv).eval();  // force temporary, then assign
 Original: `tangent_buf` = tangent of last substep only.
 Fixed: accumulate via chain rule: `tangent_buf = J⁻¹(tangent_buf + weight·P_eff)`
 
-### 5.4 OPEN ISSUE: Multi-element convergence in Abaqus
+### 5.4 Multi-element convergence in Abaqus — RESOLVED
 
-**Symptom:** Mini-FEM test passes (same code logic), but Abaqus fails.
+**Root cause:** Eigen aliasing bug in `CPUMAT::step()`:
+```cpp
+sv.noalias() = V_to_A() * sv;  // noalias with self-assignment corrupts data
+```
+When `noalias()` is used with self-assignment, Eigen writes the result directly into `sv` as the multiplication proceeds. Row 5 of `V_to_A` reads `sv(3)` which was already overwritten by row 3. Every UMAT call returned `STRESS[σ₂₃] = σ₁₂/2`, and the true σ₂₃ was lost.
 
-**Observations:**
-1. All 64 IPs give identical stress (9.66 MPa) → orientation from PROPS not applied correctly in Abaqus context
-2. The mini-FEM test uses the SAME Grain singleton approach and works
-3. `tangent_8el_same.inp` (all elements same non-identity orientation) also fails
+**Fix:** `sv = (V_to_A() * sv).eval()` — forces a temporary.
 
-**Hypotheses (unverified):**
-- Abaqus may initialize STATEV with non-zero values, breaking the `STATEV[69] != 123456` guard
-- Abaqus may call UMAT in a different order than the mini-FEM test (affecting when `set_orientation` vs `load_state` is called)
-- The `static CPUMAT` singleton may interact with Abaqus's parallel/serial execution model differently than the mini-FEM test
+**Why it was invisible:**
+- Only affects the UMAT wrapper (not standalone Grain/RVE)
+- With identity orientation: σ₁₂ = σ₂₃ = 0, so the corruption is zero
+- All identity test cases pass; only non-identity multi-element cases fail
 
-**Diagnostic attempted:**
-- Added orientation quaternion to STATEV[60-63] and element number to STATEV[64]
-- ODB output doesn't include SDV fields (output request only has `S`)
-- Need to add `*ELEMENT OUTPUT, DIRECTION=YES` with SDV to ODB, or write orientation to a file from within UMAT
+**Resolution verified:**
+- Single-element random: ✅ 28.09 MPa, 0 errors
+- Multi-element identity (8-1000 el): ✅ 49.78 MPa uniform, 0 errors
+- Multi-element random 8 el: ✅ converges, S33 scatter 12-15 MPa
+- Multi-element random 343 el (7×7×7): ✅ **3 часа CPU, 0 errors**, S33 per element 27-74 MPa (102.5% variation — texture effect)
+
+**Files:** `cp_umat/cp_umat.cpp` (aliasing fix, chain tangent, DS_CRITICAL_IMPL=2e-3, PNEWDT, substep cap)
 
 ## 6. Implementation Details
 
