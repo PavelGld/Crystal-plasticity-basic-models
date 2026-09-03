@@ -1,5 +1,6 @@
 #include "cp_umat_interface.hpp"
 #include <cmath>
+#include <cstdio>
 
 // === Hardcoded FCC {111}<110> slip systems ===
 static const double fcc_b[12][3] = {
@@ -102,7 +103,7 @@ void CPUMAT::load_state(Grain* g, const double* STATEV)
     for (int i=0;i<N;i++) tc[i]=STATEV[10+i];
     for (int i=0;i<N;i++) shifts[i]=STATEV[34+i];
     g->set_tc_all(tc); g->set_shifts_all(shifts);
-    if (g->get_H().rows() > 0) g->update_H_KM();  // recompute H from restored tc
+    g->update_H_KM_if_needed();  // recompute H from restored tc (hard_mode==2 only)
     g->set_sim_time(STATEV[67]); g->set_acc_def(STATEV[68]);
 }
 
@@ -123,6 +124,18 @@ void CPUMAT::step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, 
 {
     PNEWDT = 1.0;
     if (!g) return;
+    if (DTIME <= 0.0) {
+        // Abaqus may probe the material with a zero time increment (initial stiffness):
+        // return current stress in lab frame and the elastic lab stiffness, no integration.
+        Eigen::Matrix3d sl0 = g->get_stress_lab();
+        Vector6d sv0; tensorToVoigtInPlace(sl0, sv0);
+        sv0 = (V_to_A() * sv0).eval();
+        for (int i=0;i<6;i++) STRESS[i]=sv0(i);
+        Matrix6d E; g->get_elasticity_lab_into(E);
+        Matrix6d D0 = V_to_A() * E * A_to_V();
+        for (int i=0;i<6;i++) for (int j=0;j<6;j++) DDSDDE[i+j*6]=D0(i,j);
+        return;
+    }
 
     Eigen::Matrix<double,6,1> de;
     for (int i=0;i<6;i++) de(i)=DSTRAN[i];
@@ -132,10 +145,13 @@ void CPUMAT::step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, 
 
     Eigen::Matrix3d sl = g->get_stress_lab();
     Vector6d sv; tensorToVoigtInPlace(sl, sv);
-    sv.noalias() = V_to_A() * sv;
+    sv = (V_to_A() * sv).eval();   // FIX: aliasing — noalias() при самоприсваивании портил sigma23
     for (int i=0;i<6;i++) STRESS[i]=sv(i);
 
-    Matrix6d T; g->get_tangent_lab_into(T);
+    if (g->get_step_failed())
+        PNEWDT = 0.25;   // local integrator failed: ask Abaqus to cut the increment
+
+    Matrix6d T; g->get_tangent_lab_into(T);   // on failure: elastic fallback (tangent_valid=false)
     Matrix6d D = V_to_A() * T * A_to_V();
     for (int i=0;i<6;i++) for (int j=0;j<6;j++) DDSDDE[i+j*6]=D(i,j);
 }
@@ -159,13 +175,27 @@ extern "C" void umat_(
     Grain* g = cpumat.grain();
 
     bool first = (std::abs(STATEV[69] - 123456.0) > 0.5);
+    // (removed: STATEV[56..59] overlaps shifts[22..23] and corrupted state via load_state)
     if (first) {
         // Initial orientation from PROPS[10-13] for this element
         Eigen::Quaterniond q(PROPS[10], PROPS[11], PROPS[12], PROPS[13]);
         q.normalize();
         g->set_orientation(q);
         g->reset_state();  // clean state for this IP (tc=tc0, stress=0, shifts=0)
-        CPUMAT::save_state(g, STATEV);
+    CPUMAT::save_state(g, STATEV);
+    // Diagnostic: store orientation quaternion in STATEV[60-63]
+    Eigen::Quaterniond qdiag = g->get_orientation();
+    STATEV[60] = qdiag.w(); STATEV[61] = qdiag.x(); STATEV[62] = qdiag.y(); STATEV[63] = qdiag.z();
+    STATEV[64] = (double)NOEL;
+    STATEV[65] = (double)NPT;
+#ifdef CP_UMAT_DEBUG_DUMP
+    // Definitive per-IP check of the PROPS quaternion Abaqus passes (compile with /DCP_UMAT_DEBUG_DUMP)
+    if (FILE* f = std::fopen("cp_umat_dump.txt", "a")) {
+        std::fprintf(f, "NOEL %d NPT %d PROPS[10..13] %.8f %.8f %.8f %.8f\n",
+                     NOEL, NPT, PROPS[10], PROPS[11], PROPS[12], PROPS[13]);
+        std::fclose(f);
+    }
+#endif
         STATEV[69] = 123456.0;
     } else {
         CPUMAT::load_state(g, STATEV);
