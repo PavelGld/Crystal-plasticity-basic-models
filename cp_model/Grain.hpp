@@ -73,7 +73,10 @@ class Grain
     static constexpr int NEWTON_MAX_BACKTRACKS = 5;
     static constexpr double RATIO_MAX = 2.0;          // кламп τ/τc (2^50 ≈ 1e15, переполнения нет)
     static constexpr int MAX_FALLBACK_DEPTH = 8;
-    static constexpr double DS_CRITICAL_IMPL = 2e-3;  // порог подшагивания для неявной схемы
+#ifndef CP_DS_CRIT_IMPL
+#define CP_DS_CRIT_IMPL 2e-3     // порог подшага (экв. деформация за подшаг). 2e-3: ~1 подшаг/инкремент при типичном Δε;
+#endif                           // 2.5e-4: 2 подшага, точнее, но медленнее. Переопределяется /DCP_DS_CRIT_IMPL=...
+    static constexpr double DS_CRITICAL_IMPL = CP_DS_CRIT_IMPL;  // порог подшагивания для неявной схемы
 
     mutable Matrix6d tangent_buf;   // консистентный тангенс последнего неявного шага (КСК)
     bool tangent_valid = false;
@@ -485,10 +488,11 @@ inline void Grain::evaluate_Dp(const Vector6d& sigma, double dt)
     {
         // эффективные τc от текущего итерата γ̇
         if (params->hard_mode == 2) {
+            // H = q·1·hᵀ + (1−q)·diag(h)  →  Σ_j H(i,j)γ̇_j = q·Σ_j h_j γ̇_j + (1−q)·h_i γ̇_i  (O(n))
+            double s_all = 0.0;
+            for (int j = 0; j < n; j++) s_all += H(j, j) * gamma_dot(j);
             for (int i = 0; i < n; i++) {
-                double dtc = 0.0;
-                for (int j = 0; j < n; j++)
-                    dtc += H(i, j) * gamma_dot(j);
+                double dtc = params->q * s_all + (1.0 - params->q) * H(i, i) * gamma_dot(i);
                 tc_eff(i) = tc[i] + dtc * dt;
             }
         } else if (params->hard_mode == 1) {
@@ -523,21 +527,24 @@ inline void Grain::evaluate_Dp(const Vector6d& sigma, double dt)
         if (gamma_dot(i) > 0.0)
             Dp_v.noalias() += gamma_dot(i) * params->MsE_v[i];
 
-    // G = ∂γ̇/∂σ (n×6), та же схема sweep'ов; связка упрочнения — с предыдущего sweep'а
-    G_prev.setZero();
-    for (int s = 0; s < sweeps; s++)
-    {
-        for (int i = 0; i < n; i++) {
-            if (gamma_dot(i) > 0.0) {
-                // производные в точке клампированного ratio (осознанное приближение за клампом)
-                double a_i = params->n_power * gamma_dot(i) / tau_buf(i);
-                double b_i = -params->n_power * gamma_dot(i) / tc_eff(i);
-                G_buf.row(i) = a_i * params->Ms_v[i].transpose();
-                if (params->hard_mode == 2) {
-                    for (int j = 0; j < n; j++)
-                        if (H(i, j) != 0.0)
-                            G_buf.row(i) += (b_i * H(i, j) * dt) * G_prev.row(j);
-                } else if (params->hard_mode == 1) {
+// G = ∂γ̇/∂σ (n×6), та же схема sweep'ов; связка упрочнения — с предыдущего sweep'а
+        G_prev.setZero();
+        // rank-1 часть связки KM: R = Σ_j h_j G_prev.row(j)  (один проход, O(n·6))
+        Eigen::Matrix<double,1,6> R_all; R_all.setZero();
+        if (params->hard_mode == 2)
+            for (int j = 0; j < n; j++)
+                if (gamma_dot(j) > 0.0) R_all += H(j, j) * G_prev.row(j);
+        for (int s = 0; s < sweeps; s++)
+        {
+            for (int i = 0; i < n; i++) {
+                if (gamma_dot(i) > 0.0) {
+                    // производные в точке клампированного ratio (осознанное приближение за клампом)
+                    double a_i = params->n_power * gamma_dot(i) / tau_buf(i);
+                    double b_i = -params->n_power * gamma_dot(i) / tc_eff(i);
+                    G_buf.row(i) = a_i * params->Ms_v[i].transpose();
+                    if (params->hard_mode == 2) {
+                        G_buf.row(i) += (b_i * dt) * (params->q * R_all + (1.0 - params->q) * H(i, i) * G_prev.row(i));
+                    } else if (params->hard_mode == 1) {
                     double gamma_tot = 0.0;
                     for (int j = 0; j < n; j++)
                         gamma_tot += shifts[j] + gamma_dot(j) * dt;
@@ -576,7 +583,27 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
     trial_inc_v.noalias() = params->P_v * D_v;
     sigma_trial_v.noalias() = Stress_v + trial_inc_v * dt;
 
-    Buf_v = sigma_trial_v;   // текущий итерат σ
+    // Стартовая точка Ньютона: если упругий предиктор выводит какую-то систему за
+    // τ/τc > 1, масштабируем приращение так, чтобы max τ/τc = 1. При большом n
+    // (≈ rate-independent) это убирает старт "на обрыве" степенного закона и
+    // сокращает число итераций в 3–5 раз. На результат не влияет (только старт).
+    {
+        double lam = 1.0;
+        for (int i = 0; i < n; i++) {
+            double t_old = Stress_v.dot(params->Ms_v[i]);
+            double t_tr  = sigma_trial_v.dot(params->Ms_v[i]);
+            if (t_tr > tc[i] && t_tr > t_old) {
+                double l = (tc[i] - t_old) / (t_tr - t_old);
+                if (l < lam) lam = l;
+            }
+        }
+        if (lam < 1.0) {
+            if (lam < 0.0) lam = 0.0;
+            Buf_v = Stress_v + lam * trial_inc_v * dt;
+        } else {
+            Buf_v = sigma_trial_v;
+        }
+    }
 
     evaluate_Dp(Buf_v, dt);
     res_v = Buf_v - sigma_trial_v + params->P_v * Dp_v * dt;
