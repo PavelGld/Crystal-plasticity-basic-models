@@ -127,6 +127,32 @@ tests.exe --test-case="no rotation"  # фильтр по имени теста
 
 Тесты: проверка поворота зёрен, базовой функциональности RVE, верификация кривых напряжение-деформация, неявная схема с консистентным тангенсом, multi-element UMAT, thread-safety (18 тестов, 256 checks, допуск 5%, два [slow]).
 
+### Сборка и запуск UMAT (Abaqus/Standard)
+
+**Сборка** (из папки `cp_umat/`):
+```bash
+build_cp_umat.bat
+```
+Требуется: MSVC 2022, Eigen 3.4+, Abaqus 2022.
+
+**Запуск** (из папки `cp_umat_validation/`):
+```bash
+# Однопоточный расчёт
+abaqus job=tension_343el_random user=..\cp_umat\cp_umat.obj cpus=1 int
+
+# Многопоточный расчёт (рекомендуется)
+abaqus job=tension_343el_random user=..\cp_umat\cp_umat.obj cpus=4 mp_mode=threads standard_parallel=all int
+```
+
+**Тестовые .inp файлы:**
+- `tension_8el_random.inp` — 8 элементов (быстрая проверка)
+- `tension_343el_random.inp` — 343 элемента (7×7×7, основной тест)
+
+**Извлечение результатов (S33):**
+```bash
+abaqus python extract_s33.py tension_343el_random s33_output.txt
+```
+
 ### Построение полюсных фигур (MATLAB + MTEX)
 
 ```matlab
