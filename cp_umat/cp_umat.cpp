@@ -152,11 +152,15 @@ void CPUMAT::step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, 
         return;
     }
 
+    // Both NLGEOM=NO and NLGEOM=YES: DSTRAN is the strain increment
+    // (objective, already rotated for rigid body rotation)
     Eigen::Matrix<double,6,1> de;
     for (int i=0;i<6;i++) de(i)=DSTRAN[i];
     Vector6d dv; dv.noalias() = A_to_V() * de;
     Eigen::Matrix3d Dt; voigtToTensorInPlace(dv, Dt);
-    g->Simulate_Step(DTIME, Dt / DTIME);
+    Eigen::Matrix3d L = Dt / DTIME;
+
+    g->Simulate_Step(DTIME, L);
 
     Eigen::Matrix3d sl = g->get_stress_lab();
     Vector6d sv; tensorToVoigtInPlace(sl, sv);
@@ -213,6 +217,15 @@ extern "C" void umat_(
     } else {
         CPUMAT::load_state(g, STATEV);
     }
+
+    // Apply Abaqus basis rotation to crystal lattice orientation
+    // DROT is the rotation increment of the co-rotational frame
+    // R_lat ← DROT · R_lat
+    Eigen::Matrix3d DROT_mat;
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            DROT_mat(i, j) = DROT[i + j * 3];
+    g->apply_basis_rotation(DROT_mat);
 
     CPUMAT::step(g, DSTRAN, *DTIME, STRESS, DDSDDE, PNEWDT);
     CPUMAT::save_state(g, STATEV);

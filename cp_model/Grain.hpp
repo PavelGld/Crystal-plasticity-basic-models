@@ -131,6 +131,10 @@ public:
 
     void set_orientation(const Eigen::Quaterniond& q);
 
+    // Apply Abaqus basis rotation to crystal lattice orientation (NLGEOM=YES)
+    // R_lat ← DROT · R_lat
+    void apply_basis_rotation(const Eigen::Matrix3d& DROT);
+
     Eigen::Matrix3d get_stress_lab() const;
 
     double get_stress_intensity() const;  // von Mises equivalent stress
@@ -894,6 +898,17 @@ inline void Grain::set_orientation(const Eigen::Quaterniond& q)
     orient_q = q.normalized();
     R_buf = orient_q.toRotationMatrix();
     T_voigt_valid = false;  // инвалидация кэша
+}
+
+inline void Grain::apply_basis_rotation(const Eigen::Matrix3d& DROT)
+{
+    // R_lat ← DROT · DROT
+    Eigen::Quaterniond q_rot(DROT);
+    q_rot.normalize();
+    orient_q = q_rot * orient_q;
+    orient_q.normalize();
+    R_buf = orient_q.toRotationMatrix();
+    T_voigt_valid = false;
 }
 
 inline Eigen::Matrix3d Grain::get_stress_lab() const

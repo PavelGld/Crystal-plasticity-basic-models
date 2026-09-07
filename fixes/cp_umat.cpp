@@ -1,7 +1,8 @@
 #include "cp_umat_interface.hpp"
 #include <cmath>
+#include <cstdio>
 
-// === Hardcoded FCC {111}<110> slip systems ===
+// === Hardcoded FCC {111}<110> slip systems ==============================
 static const double fcc_b[12][3] = {
     {0,1,1},{0,1,1},{0,-1,1},{0,-1,1},
     {-1,1,0},{-1,1,0},{1,1,0},{1,1,0},
@@ -44,15 +45,18 @@ static void build_slip_systems(MaterialParams& p)
     }
 }
 
-// === init_params: standard 19-PROPS format, same as single-element ===
-void CPUMAT::init_params(const double* PROPS, int NPROPS)
+// === Shared MaterialParams (read-only after init) ========================
+// Built once from PROPS. Race on first init is benign: all threads build
+// identical params (PROPS[0..9] same for all elements), we leak a few objects.
+static const MaterialParams* g_params = nullptr;
+
+static MaterialParams* build_params(const double* PROPS, int NPROPS)
 {
-    // Parse hard_mode first to know expected NPROPS
     int hard_mode = -1;
     if (NPROPS >= 5) hard_mode = (int)PROPS[4];
     int expected = (hard_mode == 2) ? 19 : (hard_mode == 1) ? 16 : 14;
-    if (NPROPS != expected) return;
-    if (hard_mode < 0 || hard_mode > 2) return;
+    if (NPROPS != expected) return nullptr;
+    if (hard_mode < 0 || hard_mode > 2) return nullptr;
 
     auto p = new MaterialParams();
     p->hard_mode = hard_mode;
@@ -80,16 +84,29 @@ void CPUMAT::init_params(const double* PROPS, int NPROPS)
         p->iso_a = PROPS[14]; p->iso_b = PROPS[15];
     }
 
-    params_ = p;
+    return p;
 }
 
-Grain* CPUMAT::grain()
+void CPUMAT::init_params(const double* PROPS, int NPROPS)
 {
-    if (!grain_ && params_)
-        grain_ = new Grain(params_, Eigen::Quaterniond::Identity());
-    return grain_;
+    if (!g_params) {
+        g_params = build_params(PROPS, NPROPS);
+    }
 }
 
+// === Per-thread Grain storage =============================================
+// Thread-local Grain pointer. Each thread creates its own Grain on first use.
+// No race: thread-local storage is inherently thread-safe.
+static __declspec(thread) Grain* t_grain = nullptr;
+
+Grain* CPUMAT::get_grain_for_thread(const MaterialParams* params)
+{
+    if (!t_grain)
+        t_grain = new Grain(params, Eigen::Quaterniond::Identity());
+    return t_grain;
+}
+
+// === State persistence ====================================================
 void CPUMAT::load_state(Grain* g, const double* STATEV)
 {
     if (!g) return;
@@ -102,7 +119,7 @@ void CPUMAT::load_state(Grain* g, const double* STATEV)
     for (int i=0;i<N;i++) tc[i]=STATEV[10+i];
     for (int i=0;i<N;i++) shifts[i]=STATEV[34+i];
     g->set_tc_all(tc); g->set_shifts_all(shifts);
-    g->update_H_KM_if_needed();  // recompute H from restored tc (hard_mode==2 only)
+    g->update_H_KM_if_needed();
     g->set_sim_time(STATEV[67]); g->set_acc_def(STATEV[68]);
 }
 
@@ -119,10 +136,24 @@ void CPUMAT::save_state(const Grain* g, double* STATEV)
     STATEV[67]=g->get_time(); STATEV[68]=g->get_acc_def();
 }
 
+// === Integration step =====================================================
+// Работает в коротационном базисе Abaqus и при NLGEOM=NO, и при NLGEOM=YES:
+// DSTRAN — (лог.) приращение деформации, уже повёрнутое за жёсткое вращение
+// инкремента; поворот базиса (DROT) применяется к ориентации решётки в umat_().
 void CPUMAT::step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, double* DDSDDE, double& PNEWDT)
 {
     PNEWDT = 1.0;
     if (!g) return;
+    if (DTIME <= 0.0) {
+        Eigen::Matrix3d sl0 = g->get_stress_lab();
+        Vector6d sv0; tensorToVoigtInPlace(sl0, sv0);
+        sv0 = (V_to_A() * sv0).eval();
+        for (int i=0;i<6;i++) STRESS[i]=sv0(i);
+        Matrix6d E; g->get_elasticity_lab_into(E);
+        Matrix6d D0 = V_to_A() * E * A_to_V();
+        for (int i=0;i<6;i++) for (int j=0;j<6;j++) DDSDDE[i+j*6]=D0(i,j);
+        return;
+    }
 
     Eigen::Matrix<double,6,1> de;
     for (int i=0;i<6;i++) de(i)=DSTRAN[i];
@@ -132,18 +163,18 @@ void CPUMAT::step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, 
 
     Eigen::Matrix3d sl = g->get_stress_lab();
     Vector6d sv; tensorToVoigtInPlace(sl, sv);
-    sv = (V_to_A() * sv).eval();   // FIX: aliasing — noalias() при самоприсваивании портил sigma23
+    sv = (V_to_A() * sv).eval();   // не noalias(): самоприсваивание
     for (int i=0;i<6;i++) STRESS[i]=sv(i);
 
     if (g->get_step_failed())
-        PNEWDT = 0.25;   // local integrator failed: ask Abaqus to cut the increment
+        PNEWDT = 0.25;
 
-    Matrix6d T; g->get_tangent_lab_into(T);   // on failure: elastic fallback (tangent_valid=false)
+    Matrix6d T; g->get_tangent_lab_into(T);
     Matrix6d D = V_to_A() * T * A_to_V();
     for (int i=0;i<6;i++) for (int j=0;j<6;j++) DDSDDE[i+j*6]=D(i,j);
 }
 
-// === extern "C" UMAT entry ===
+// === extern "C" UMAT entry ================================================
 extern "C" void umat_(
     double* STRESS, double* STATEV, double* DDSDDE,
     double& SSE,  double& SPD,  double& SCD,  double& RPL,
@@ -155,29 +186,54 @@ extern "C" void umat_(
     double& PNEWDT, double* CELENT, double* DFGRD0, double* DFGRD1,
     int& NOEL, int& NPT, int& LAYER, int& KSPT, int* JSTEP, int& KINC)
 {
-    static CPUMAT cpumat;
-    static bool ready = false;
-    if (!ready) { cpumat.init_params(PROPS, NPROPS); ready = true; }
+    CPUMAT::init_params(PROPS, NPROPS);
 
-    Grain* g = cpumat.grain();
+    const MaterialParams* params = g_params;
+    if (!params) return;
+
+    Grain* g = CPUMAT::get_grain_for_thread(params);
 
     bool first = (std::abs(STATEV[69] - 123456.0) > 0.5);
     if (first) {
-        // Initial orientation from PROPS[10-13] for this element
         Eigen::Quaterniond q(PROPS[10], PROPS[11], PROPS[12], PROPS[13]);
         q.normalize();
         g->set_orientation(q);
-        g->reset_state();  // clean state for this IP (tc=tc0, stress=0, shifts=0)
+        g->reset_state();
         CPUMAT::save_state(g, STATEV);
+        // Diagnostic: store orientation quaternion in STATEV[60-63]
+        Eigen::Quaterniond qdiag = g->get_orientation();
+        STATEV[60] = qdiag.w(); STATEV[61] = qdiag.x(); STATEV[62] = qdiag.y(); STATEV[63] = qdiag.z();
+        STATEV[64] = (double)NOEL;
+        STATEV[65] = (double)NPT;
+#ifdef CP_UMAT_DEBUG_DUMP
+        if (FILE* f = std::fopen("cp_umat_dump.txt", "a")) {
+            std::fprintf(f, "NOEL %d NPT %d PROPS[10..13] %.8f %.8f %.8f %.8f\n",
+                         NOEL, NPT, PROPS[10], PROPS[11], PROPS[12], PROPS[13]);
+            std::fclose(f);
+        }
+#endif
         STATEV[69] = 123456.0;
     } else {
         CPUMAT::load_state(g, STATEV);
     }
 
-    cpumat.step(g, DSTRAN, *DTIME, STRESS, DDSDDE, PNEWDT);
+    // NLGEOM=YES: DROT — приращение жёсткого вращения базиса, в котором Abaqus хранит STRESS
+    // (при NLGEOM=NO — единичная). Abaqus уже повернул входной STRESS на DROT; наше состояние
+    // живёт в кристальной системе, поэтому поворачиваем ориентацию решётки: R_lat <- DROT * R_lat.
+    // Тем самым спин решётки становится полным тейлоровским (W - Wp): W приходит через DROT,
+    // Wp вычитается в Simulate_Step.
+    if (DROT) {
+        Eigen::Matrix3d dR;
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) dR(i, j) = DROT[i + j * 3];  // Fortran column-major
+        if ((dR - Eigen::Matrix3d::Identity()).norm() > 1e-15)
+            g->rotate_lattice(dR);
+    }
+
+    CPUMAT::step(g, DSTRAN, *DTIME, STRESS, DDSDDE, PNEWDT);
     CPUMAT::save_state(g, STATEV);
 }
 
+// === Wrapper to preserve the original umat() signature ===================
 extern "C" void umat(
     double* STRESS, double* STATEV, double* DDSDDE,
     double& SSE,  double& SPD,  double& SCD,  double& RPL,
