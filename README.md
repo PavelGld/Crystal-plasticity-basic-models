@@ -19,7 +19,9 @@ C++ реализация модели кристаллической пласт�
 - **Параллелизация** через OpenMP
 - **Неявная схема интегрирования** (Newton-Raphson) с консистентным тангенсом — для больших шагов и встраивания в Abaqus/Standard (UMAT)
 - **Multi-element UMAT** — thread-safe реализация с `__declspec(thread)`, валидирована на 8 и 343 элементах
+- **NLGEOM=YES** — поддержка конечных деформаций через Abaqus co-rotational basis (DROT)
 - **Параллельное выполнение в Abaqus** — ускорение ~3.7x на 4 ядрах (343 элемента: 48 мин vs ~3 часа)
+- **Оптимизация производительности** — scaled Newton predictor, O(n) Kocks-Mecking (479→34 мкс/вызов)
 - Валидация текстур через MTEX pole figures
 
 ## Валидация текстур
@@ -142,15 +144,26 @@ abaqus job=tension_343el_random user=..\cp_umat\cp_umat.obj cpus=1 int
 
 # Многопоточный расчёт (рекомендуется)
 abaqus job=tension_343el_random user=..\cp_umat\cp_umat.obj cpus=4 mp_mode=threads standard_parallel=all int
+
+# Конечные деформации (NLGEOM=YES)
+abaqus job=tension_343el_100pct user=..\cp_umat\cp_umat.obj cpus=4 mp_mode=threads standard_parallel=all int
 ```
 
 **Тестовые .inp файлы:**
 - `tension_8el_random.inp` — 8 элементов (быстрая проверка)
-- `tension_343el_random.inp` — 343 элемента (7×7×7, основной тест)
+- `tension_343el_random.inp` — 343 элемента (7×7×7, основной тест, 30% деформации)
+- `tension_343el_100pct.inp` — 343 элемента, 100% деформации, NLGEOM=YES
+
+**Производительность (343 элемента, n_power=50):**
+| Режим | Время | Ускорение |
+|---|---|---|
+| cpus=1, NLGEOM=NO | ~3 часа | 1x |
+| cpus=4, NLGEOM=NO | 4 мин | ~45x |
+| cpus=4, NLGEOM=YES, 100% | ~15 мин | ~12x |
 
 **Извлечение результатов (S33):**
 ```bash
-abaqus python extract_s33.py tension_343el_random s33_output.txt
+abaqus python extract_s33.py tension_343el_100pct s33_output.txt
 ```
 
 ### Построение полюсных фигур (MATLAB + MTEX)
