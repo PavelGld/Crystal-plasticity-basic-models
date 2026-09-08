@@ -1,0 +1,77 @@
+## Что где лежит
+
+**`mesh.msh`** — основной файл сетки: узлы, элементы, разбиение на elset'ы и, поскольку мозаика содержала ориентации, секции `$ElsetOrientations` и `$ElementOrientations`. Это самодостаточный файл, читается Gmsh и FEPX.
+
+**`mesh.inp`** — та же сетка в формате Abaqus. Тут важная деталь про ваши 5438 `*Elset`: зёрен только 200, остальное — элементсеты меньших размерностей (грани, рёбра, вершины мозаики) плюс поверхностные наборы от `-faset faces`. Посмотрите сами:
+
+```bash
+grep "^\*Elset" mesh.inp | head -20
+grep "^\*Nset" mesh.inp | head
+```
+
+Если в Abaqus эта груда мешает, ограничьте вывод трёхмерной сеткой: `-dim 3` в `-M`. На `.msh` это не влияет — он всегда содержит все размерности.
+
+**`mesh.ori`** — ориентации: содержимое секций `$ElsetOrientations` и `$ElementOrientations` из `.msh`, вынесенное отдельным файлом. Проверьте первые строки, там указан дескриптор:
+
+```bash
+head -5 mesh.ori
+```
+
+**`mesh.stelt`** — 46499 строк, по строке на элемент: `id элемента`, `номер зерна`. Это и есть явная привязка КЭ к зерну.
+
+**`mesh.stelset`** — 200 строк, по строке на зерно: `id`, `число элементов`, `объём`, `φ1`, `Φ`, `φ2`. Сумма объёмов у вас дала ровно 1 — все зёрна на месте.
+
+**`poly.tess`** и **`poly.stcell`** — исходная мозаика и её ячейки. Нумерация ячеек согласована с нумерацией elset'ов сетки, так что `poly.stcell` и `mesh.stelset` должны совпасть по столбцу углов.
+
+Быстрая сверка, что связка не поехала:
+
+```bash
+paste <(awk '{print $1, $4, $5, $6}' mesh.stelset) <(awk '{print $1, $3, $4, $5}' poly.stcell) | head
+awk '{s+=$2} END {print s}' mesh.stelset   # должно дать 46499
+```
+
+## Картинки
+
+Для растровых изображений `neper -V` использует POV-Ray, его надо поставить:
+
+```bash
+sudo apt install povray
+```
+
+Дальше — разбиение с раскраской по номеру зерна:
+
+```bash
+neper -V poly.tess,mesh.msh -dataelsetcol id -imagesize 1200:900 -print grains
+```
+
+Получится `grains.png`. Рёбра элементов рисуются по умолчанию, так что принадлежность КЭ к зерну видна прямо по цветам.
+
+Разрезы, чтобы заглянуть внутрь:
+
+```bash
+neper -V mesh.msh -dataelsetcol id -slicemesh "x=0.5:y=0.5:z=0.5" -print slices
+```
+
+Только внутренние зёрна, без приграничных:
+
+```bash
+neper -V poly.tess,mesh.msh -dataelsetcol id -showelset "body>0" -print interior
+```
+
+Раскраска по ориентациям в IPF-схеме — полезно для проверки, что ориентации вообще доехали до сетки:
+
+```bash
+neper -V mesh.msh -dataeltcol ori -dataeltcolscheme "ipf(z)" -print ipf
+```
+
+**Если POV-Ray ставить не хочется** — выгрузите VTK и смотрите в ParaView, там же удобнее крутить и резать:
+
+```bash
+neper -V poly.tess,mesh.msh -dataelsetcol id -imageformat vtk -print grains
+```
+
+Серия срезов по z одной командой:
+
+```bash
+neper -V mesh.msh -dataelsetcol id -loop Z 0.1 0.1 0.9 -slicemesh "z=Z" -print sliceZ -endloop
+```
