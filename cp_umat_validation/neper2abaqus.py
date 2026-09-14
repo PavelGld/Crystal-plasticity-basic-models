@@ -122,7 +122,7 @@ def main():
     neper_dir, out = sys.argv[1], sys.argv[2]
     strain = float(sys.argv[3]) if len(sys.argv) > 3 else 0.3
     dt = float(sys.argv[4]) if len(sys.argv) > 4 else 0.001
-    dtmax = float(sys.argv[5]) if len(sys.argv) > 5 else dt
+    dtmax = float(sys.argv[5]) if len(sys.argv) > 5 else 10*dt
     base = os.path.join(neper_dir, "mesh")
 
     nodes, elements, elsets = parse_mesh_inp(base + ".inp")
@@ -196,32 +196,23 @@ def main():
         f.write("*NSET, NSET=BOTTOM\n"); chunk(f, bottom)
         f.write("*NSET, NSET=BACK\n"); chunk(f, back)
 
-        # Step 1: small transient past initial yield; Step 2: steady large step
-        s0 = min(0.002, strain)
+        # ОДИН шаг: первый инкремент шага Abaqus считает без экстраполяции и с DSTRAN=0
+        # (упругий тангенс) -- каждый новый *STEP на пластически нагруженной модели
+        # стартует "с нуля" и режет dt. Стартовый dt мал, рост до dtmax -- автоматический
+        # (UMAT больше не пиннит PNEWDT=1.0).
         ctrl = ("*CONTROLS, PARAMETERS=TIME INCREMENTATION\n8, 10, 9, 16, 10, 4, 12, 5\n"
                 "*CONTROLS, PARAMETERS=LINE SEARCH\n5, 1.0, 0.0001, 0.25, 0.10\n")
         f.write("*STEP, NLGEOM=YES, INC=200000, UNSYMM=YES\n")
-        f.write("*STATIC\n%.6g, %.6g, 1e-9, %.6g\n" % (dt, s0, dtmax))
+        f.write("*STATIC\n%.6g, %.6g, 1e-9, %.6g\n" % (dt, strain, dtmax))
         f.write(ctrl)
         f.write("*BOUNDARY\n")
         f.write("LEFT, 1, 1, 0.0\nBOTTOM, 2, 2, 0.0\nBACK, 3, 3, 0.0\n")
         f.write("*BOUNDARY, TYPE=DISPLACEMENT\n")
-        f.write("RIGHT, 1, 1, %.6f\n" % (s0 * (maxx - minx)))
+        f.write("RIGHT, 1, 1, %.6f\n" % (strain * (maxx - minx)))
         f.write("*OUTPUT, FIELD, FREQUENCY=50\n")
         f.write("*ELEMENT OUTPUT\nS, E, LE, SDV\n")
         f.write("*NODE OUTPUT\nU\n")
         f.write("*END STEP\n")
-
-        if strain > s0:
-            f.write("*STEP, NLGEOM=YES, INC=200000, UNSYMM=YES\n")
-            f.write("*STATIC\n%.6g, %.6g, 1e-9, %.6g\n" % (dtmax, strain - s0, dtmax))
-            f.write(ctrl)
-            f.write("*BOUNDARY, TYPE=DISPLACEMENT\n")
-            f.write("RIGHT, 1, 1, %.6f\n" % (strain * (maxx - minx)))
-            f.write("*OUTPUT, FIELD, FREQUENCY=50\n")
-            f.write("*ELEMENT OUTPUT\nS, E, LE, SDV\n")
-            f.write("*NODE OUTPUT\nU\n")
-            f.write("*END STEP\n")
     print("wrote %s (strain=%.3f, dt=%.4g, ~%d increments)" % (out, strain, dt, int(round(strain / dt))))
 
 

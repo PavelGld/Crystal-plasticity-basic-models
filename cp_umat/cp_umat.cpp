@@ -139,7 +139,10 @@ void CPUMAT::save_state(const Grain* g, double* STATEV)
 // === Integration step =====================================================
 void CPUMAT::step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, double* DDSDDE, double& PNEWDT)
 {
-    PNEWDT = 1.0;
+    // PNEWDT: НЕ трогать по умолчанию. Abaqus передаёт большое значение и берёт минимум по всем
+    // вызовам как множитель нового dt; безусловное PNEWDT = 1.0 запрещало Abaqus увеличивать шаг
+    // (см. .sta: инкременты за 1 итерацию при dt, навсегда равном стартовому). Меняем только
+    // при провале локального интегратора (PNEWDT = 0.25 ниже).
     if (!g) return;
     if (DTIME <= 0.0) {
         Eigen::Matrix3d sl0 = g->get_stress_lab();
