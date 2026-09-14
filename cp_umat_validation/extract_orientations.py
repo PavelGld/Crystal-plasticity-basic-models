@@ -9,34 +9,43 @@ out_name = sys.argv[2]
 odb = openOdb(odb_name + '.odb', readOnly=True)
 step = odb.steps.keys()[-1]
 frame = odb.steps[step].frames[-1]
-print("step=%s frame time=%s  nframes=%d" % (step, frame.frameValue, len(odb.steps[step].frames)))
+fo = frame.fieldOutputs
+print("step=%s frame time=%s nframes=%d" % (step, frame.frameValue, len(odb.steps[step].frames)))
 
-sdv = frame.fieldOutputs['SDV']
+# Abaqus may expose SDV either as one field 'SDV' or as separate SDV1..SDVN
+if 'SDV' in fo:
+    def q_of(v):
+        d = v.data
+        return d[6], d[7], d[8], d[9]
+    src = fo['SDV']
+else:
+    f7, f8, f9, f10 = fo['SDV7'], fo['SDV8'], fo['SDV9'], fo['SDV10']
+    v7 = dict((v.elementLabel, v.data) for v in f7.values)
+    v8 = dict((v.elementLabel, v.data) for v in f8.values)
+    v9 = dict((v.elementLabel, v.data) for v in f9.values)
+    v10 = dict((v.elementLabel, v.data) for v in f10.values)
+    def q_of(v):
+        el = v.elementLabel
+        return v7[el], v8[el], v9[el], v10[el]
+    src = f7
 
-# collect first-IP quaternion per element
-# Abaqus SDV is 1-indexed; C++ STATEV[6..9] -> SDV7..10 -> data[6..9]
+# first-IP quaternion per element
 per_elem = {}
-for v in sdv.values:
+for v in src.values:
     el = v.elementLabel
-    if el in per_elem:
-        continue
-    d = v.data
-    per_elem[el] = (d[6], d[7], d[8], d[9])   # w, x, y, z
-
+    if el not in per_elem:
+        per_elem[el] = q_of(v)
 print("elements with SDV: %d" % len(per_elem))
 
 
 def quat_to_euler(w, x, y, z):
-    # normalize
     n = math.sqrt(w*w + x*x + y*y + z*z)
     if n < 1e-12:
         return (0.0, 0.0, 0.0)
     w, x, y, z = w/n, x/n, y/n, z/n
-    # rotation matrix from quaternion
     R = [[1-2*(y*y+z*z), 2*(x*y-z*w),   2*(x*z+y*w)],
          [2*(x*y+z*w),   1-2*(x*x+z*z), 2*(y*z-x*w)],
          [2*(x*z-y*w),   2*(y*z+x*w),   1-2*(x*x+y*y)]]
-    # Bunge Euler (ZYZ), degrees
     Phi = math.acos(max(-1.0, min(1.0, R[2][2])))
     if abs(math.sin(Phi)) > 1e-8:
         phi1 = math.atan2(R[2][0], -R[2][1])

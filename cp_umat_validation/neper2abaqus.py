@@ -123,7 +123,8 @@ def main():
     strain = float(sys.argv[3]) if len(sys.argv) > 3 else 0.3
     dt = float(sys.argv[4]) if len(sys.argv) > 4 else 0.001
     dtmax = float(sys.argv[5]) if len(sys.argv) > 5 else 10*dt
-    base = os.path.join(neper_dir, "mesh")
+    meshbase = sys.argv[6] if len(sys.argv) > 6 else "mesh"
+    base = os.path.join(neper_dir, meshbase)
 
     nodes, elements, elsets = parse_mesh_inp(base + ".inp")
     ori = parse_ori(base + ".ori")
@@ -167,7 +168,9 @@ def main():
         for nid, (x, y, z) in sorted(nodes.items()):
             f.write("%d, %.10e, %.10e, %.10e\n" % (nid, x, y, z))
 
-        f.write("*ELEMENT, TYPE=C3D10, ELSET=ALLEL\n")
+        nnode = len(next(iter(elements.values())))
+        etype = {4: "C3D4", 8: "C3D8", 10: "C3D10"}.get(nnode, "C3D4")
+        f.write("*ELEMENT, TYPE=%s, ELSET=ALLEL\n" % etype)
         for eid, c in sorted(elements.items()):
             f.write("%d, %s\n" % (eid, ", ".join(str(n) for n in c)))
 
