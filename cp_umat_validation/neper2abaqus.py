@@ -120,7 +120,9 @@ def chunk(f, ids, per=16):
 
 def main():
     neper_dir, out = sys.argv[1], sys.argv[2]
-    max_strain = float(sys.argv[3]) if len(sys.argv) > 3 else 0.3
+    strain = float(sys.argv[3]) if len(sys.argv) > 3 else 0.3
+    dt = float(sys.argv[4]) if len(sys.argv) > 4 else 0.001
+    dtmax = float(sys.argv[5]) if len(sys.argv) > 5 else dt
     base = os.path.join(neper_dir, "mesh")
 
     nodes, elements, elsets = parse_mesh_inp(base + ".inp")
@@ -159,7 +161,7 @@ def main():
                         (re.match(r'poly(\d+)', k, re.I) for k in elsets) if m)
 
     with open(out, 'w') as f:
-        f.write("*HEADING\nCPFEM Neper %d grains, eps=%.2f\n" % (len(grain_list), max_strain))
+        f.write("*HEADING\nCPFEM Neper %d grains, eps=%.2f\n" % (len(grain_list), strain))
 
         f.write("*NODE\n")
         for nid, (x, y, z) in sorted(nodes.items()):
@@ -185,7 +187,8 @@ def main():
             f.write("*MATERIAL, NAME=%s\n" % mat)
             f.write("*USER MATERIAL, CONSTANTS=19, UNSYMM\n")
             f.write("0, 106750, 60410, 28340, 2, 2, 1, 6\n")
-            f.write("0.588235, 20, %.10f, %.10f, %.10f, %.10f, 1, 2\n" % (w, x, y, z))
+            f.write("0.588235, 50, %.10f, %.10f, %.10f, %.10f, 1, 2\n" % (w, x, y, z))
+            f.write("115, 34, 2.25\n")
             f.write("*DEPVAR\n70\n")
 
         f.write("*NSET, NSET=LEFT\n"); chunk(f, left)
@@ -193,15 +196,29 @@ def main():
         f.write("*NSET, NSET=BOTTOM\n"); chunk(f, bottom)
         f.write("*NSET, NSET=BACK\n"); chunk(f, back)
 
-        f.write("*STEP, NLGEOM=YES, INC=2000, UNSYMM=YES\n")
-        f.write("*STATIC\n0.0005, 1.0, 1e-8, 0.01\n")
+        # Step 1: small transient past initial yield; Step 2: steady large step
+        s0 = min(0.005, strain)
+        f.write("*STEP, NLGEOM=YES, INC=200000, UNSYMM=YES\n")
+        f.write("*STATIC\n%.6g, %.6g, 1e-9, %.6g\n" % (dt, s0, dtmax))
         f.write("*BOUNDARY\n")
         f.write("LEFT, 1, 1, 0.0\nBOTTOM, 2, 2, 0.0\nBACK, 3, 3, 0.0\n")
         f.write("*BOUNDARY, TYPE=DISPLACEMENT\n")
-        f.write("RIGHT, 1, 1, %.6f\n" % (max_strain * (maxx - minx)))
-        f.write("*OUTPUT, FIELD\n*ELEMENT OUTPUT\nS\n")
+        f.write("RIGHT, 1, 1, %.6f\n" % (s0 * (maxx - minx)))
+        f.write("*OUTPUT, FIELD, FREQUENCY=50\n")
+        f.write("*ELEMENT OUTPUT\nS, E, LE, SDV\n")
+        f.write("*NODE OUTPUT\nU\n")
         f.write("*END STEP\n")
-    print("wrote", out)
+
+        if strain > s0:
+            f.write("*STEP, NLGEOM=YES, INC=200000, UNSYMM=YES\n")
+            f.write("*STATIC\n%.6g, %.6g, 1e-9, %.6g\n" % (dtmax, strain - s0, dtmax))
+            f.write("*BOUNDARY, TYPE=DISPLACEMENT\n")
+            f.write("RIGHT, 1, 1, %.6f\n" % (strain * (maxx - minx)))
+            f.write("*OUTPUT, FIELD, FREQUENCY=50\n")
+            f.write("*ELEMENT OUTPUT\nS, E, LE, SDV\n")
+            f.write("*NODE OUTPUT\nU\n")
+            f.write("*END STEP\n")
+    print("wrote %s (strain=%.3f, dt=%.4g, ~%d increments)" % (out, strain, dt, int(round(strain / dt))))
 
 
 if __name__ == "__main__":
