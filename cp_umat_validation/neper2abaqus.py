@@ -197,9 +197,12 @@ def main():
         f.write("*NSET, NSET=BACK\n"); chunk(f, back)
 
         # Step 1: small transient past initial yield; Step 2: steady large step
-        s0 = min(0.005, strain)
+        s0 = min(0.002, strain)
+        ctrl = ("*CONTROLS, PARAMETERS=TIME INCREMENTATION\n8, 10, 9, 16, 10, 4, 12, 5\n"
+                "*CONTROLS, PARAMETERS=LINE SEARCH\n5, 1.0, 0.0001, 0.25, 0.10\n")
         f.write("*STEP, NLGEOM=YES, INC=200000, UNSYMM=YES\n")
         f.write("*STATIC\n%.6g, %.6g, 1e-9, %.6g\n" % (dt, s0, dtmax))
+        f.write(ctrl)
         f.write("*BOUNDARY\n")
         f.write("LEFT, 1, 1, 0.0\nBOTTOM, 2, 2, 0.0\nBACK, 3, 3, 0.0\n")
         f.write("*BOUNDARY, TYPE=DISPLACEMENT\n")
@@ -212,6 +215,7 @@ def main():
         if strain > s0:
             f.write("*STEP, NLGEOM=YES, INC=200000, UNSYMM=YES\n")
             f.write("*STATIC\n%.6g, %.6g, 1e-9, %.6g\n" % (dtmax, strain - s0, dtmax))
+            f.write(ctrl)
             f.write("*BOUNDARY, TYPE=DISPLACEMENT\n")
             f.write("RIGHT, 1, 1, %.6f\n" % (strain * (maxx - minx)))
             f.write("*OUTPUT, FIELD, FREQUENCY=50\n")
