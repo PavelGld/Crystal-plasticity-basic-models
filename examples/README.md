@@ -3,6 +3,9 @@
 Self-contained CPFEM runs. Each folder has the deck (or a generator), a
 `run.bat`, and a `README.md`.
 
+> Importing a **new** Neper structure? See the step-by-step guide:
+> [`../docs/neper-to-abaqus.md`](../docs/neper-to-abaqus.md).
+
 | # | Folder | Mesh | Grains | Loading | Purpose |
 |---|---|---|---|---|---|
 | 01 | [`01_single_element`](01_single_element/) | 1×`C3D8` | 1 | tension 10% | smoke test (build/link/run) |

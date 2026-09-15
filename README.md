@@ -20,9 +20,33 @@ C++ реализация модели кристаллической пласт�
 - **Неявная схема интегрирования** (Newton-Raphson) с консистентным тангенсом — для больших шагов и встраивания в Abaqus/Standard (UMAT)
 - **Multi-element UMAT** — thread-safe реализация с `__declspec(thread)`, валидирована на 8 и 343 элементах
 - **NLGEOM=YES** — поддержка конечных деформаций через Abaqus co-rotational basis (DROT)
+- **Интеграция структур Neper** — реалистичные поликристаллы (сетка + ориентации зёрен) → Abaqus-дек автоматически ([гид](docs/neper-to-abaqus.md))
 - **Параллельное выполнение в Abaqus** — ускорение ~3.7x на 4 ядрах (343 элемента: 48 мин vs ~3 часа)
 - **Оптимизация производительности** — scaled Newton predictor, O(n) Kocks-Mecking (479→34 мкс/вызов)
 - Валидация текстур через MTEX pole figures
+
+## Быстрый старт
+
+```bash
+# 1. собрать UMAT
+cd cp_umat && build_cp_umat.bat && cd ..
+
+# 2. запустить готовый пример (200 зёрен, растяжение 100%, ~8 мин)
+cd examples/03_neper_200grains_symmetry
+run.bat
+```
+
+Готовые примеры — в [`examples/`](examples/README.md):
+
+| # | Пример | Что показывает |
+|---|---|---|
+| 01 | [single element](examples/01_single_element/) | smoke-тест сборки/линковки |
+| 02 | [cube 343 random](examples/02_cube_343_random/) | куб 7×7×7, материал-на-элемент |
+| 03 | [Neper 200 grains, symmetry](examples/03_neper_200grains_symmetry/) | реальная структура, симметричные ГУ |
+| 04 | [Neper 200 grains, free/clamp](examples/04_neper_200grains_free/) | честное растяжение + сравнение ГУ |
+
+**Интеграция сеток из Neper** — пошаговая инструкция:
+[`docs/neper-to-abaqus.md`](docs/neper-to-abaqus.md).
 
 ## Валидация текстур
 
@@ -137,15 +161,7 @@ build_cp_umat.bat
 ```
 Требуется: MSVC 2022, Eigen 3.4+, Abaqus 2022. Результат — `cp_umat/cp_umat.obj`.
 
-**Запуск** — готовые примеры в `examples/` (каждый со своим `run.bat`):
-
-| Пример | Что показывает |
-|---|---|
-| [`examples/01_single_element`](examples/01_single_element/) | 1 элемент, smoke-тест сборки/линковки |
-| [`examples/02_cube_343_random`](examples/02_cube_343_random/) | куб 7×7×7, материал-на-элемент |
-| [`examples/03_neper_200grains_symmetry`](examples/03_neper_200grains_symmetry/) | Neper-структура 200 зёрен, симметричные ГУ |
-| [`examples/04_neper_200grains_free`](examples/04_neper_200grains_free/) | то же, честное растяжение (4 грани свободны) |
-
+**Запуск** — готовые примеры в [`examples/`](examples/README.md), у каждого свой `run.bat`:
 ```bash
 cd examples/03_neper_200grains_symmetry
 run.bat
@@ -154,10 +170,10 @@ run.bat
 **Neper → Abaqus** (`scripts/neper2abaqus.py`):
 ```bash
 python scripts/neper2abaqus.py meshes/neper_200gr_11135el out.inp \
-       1.0 0.0001 0.001 mesh_c sym
+       1.0 0.0001 0.001 mesh_c free
 ```
-Аргументы: `<папка_меша> <out.inp> [strain] [dt_start] [dt_max] [имя_меша] [sym|free]`.
-Подробности — в [examples/README.md](examples/README.md).
+Аргументы: `<папка_меша> <out.inp> [strain] [dt_start] [dt_max] [имя_меша] [sym|free|clamp]`.
+Пошаговая инструкция — [`docs/neper-to-abaqus.md`](docs/neper-to-abaqus.md).
 
 **Производительность (200 зёрен, n_power=50, cpus=4):**
 
