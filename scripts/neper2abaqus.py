@@ -210,7 +210,14 @@ def main():
         f.write("*STATIC\n%.6g, %.6g, 1e-9, %.6g\n" % (dt, strain, dtmax))
         f.write(ctrl)
         f.write("*BOUNDARY\n")
-        if bc_mode == "free":
+        if bc_mode == "clamp":
+            # Fully clamp the LEFT face (all 3 DOF).  The clamped end cannot
+            # contract laterally, so the lateral contraction is non-uniform:
+            # zero at the grip and maximal further along the specimen.
+            # No rigid-body modes remain (the whole face is fixed), so no
+            # extra node constraints are needed.
+            f.write("LEFT, 1, 3, 0.0\n")
+        elif bc_mode == "free":
             # "Honest" uniaxial tension: LEFT face fixed in x, RIGHT face pulled,
             # the other four faces are free.  Rigid-body modes removed with a
             # minimal 3-2-1 set: ux=0 on LEFT kills x-translation and rotations

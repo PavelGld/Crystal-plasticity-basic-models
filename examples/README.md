@@ -8,7 +8,7 @@ Self-contained CPFEM runs. Each folder has the deck (or a generator), a
 | 01 | [`01_single_element`](01_single_element/) | 1×`C3D8` | 1 | tension 10% | smoke test (build/link/run) |
 | 02 | [`02_cube_343_random`](02_cube_343_random/) | 7×7×7 `C3D8` | 343 | tension 30%, `NLGEOM=NO` | material-per-element polycrystal |
 | 03 | [`03_neper_200grains_symmetry`](03_neper_200grains_symmetry/) | Neper `C3D4` (11k) | 200 | tension 100%, symmetry BCs | real microstructure |
-| 04 | [`04_neper_200grains_free`](04_neper_200grains_free/) | Neper `C3D4` (11k) | 200 | tension 100%, **free lateral faces** | honest RVE tension |
+| 04 | [`04_neper_200grains_free`](04_neper_200grains_free/) | Neper `C3D4` (11k) | 200 | tension 100%, 4 lateral faces free **and** clamped-grip variant | honest RVE tension |
 
 ## Prerequisites
 
@@ -39,7 +39,9 @@ run.bat
 | `neper2abaqus.py` | Neper `mesh.inp`/`mesh.ori` → Abaqus CPFEM deck (per-grain materials, BCs) |
 | `extract_s33.py` | ODB → S33 per element (text) |
 | `extract_quats.py` | ODB → lattice quaternion `SDV7..10` per element (text) |
+| `extract_u.py` | ODB → node coordinates + displacement `U` (text) |
 | `polefigures.py` | quaternion file → `{100}/{110}/{111}` pole figures (PNG) |
+| `check_volume.py` | ODB → `tr(LE) = ln J` statistics (volumetric sanity check) |
 
 ### Neper → Abaqus
 
@@ -48,7 +50,10 @@ python scripts/neper2abaqus.py <mesh_dir> <out.inp> \
        [strain] [dt_start] [dt_max] [mesh_basename] [bc_mode]
 ```
 - `mesh_dir` — folder with `mesh.inp` + `mesh.ori` (Neper Abaqus export)
-- `bc_mode` — `sym` (1/8 symmetry) or `free` (honest tension)
+- `bc_mode`:
+  - `sym` — 1/8 symmetry model (three faces on symmetry planes)
+  - `free` — honest tension: 4 lateral faces free (uniform lateral contraction)
+  - `clamp` — tension with a fully clamped grip (non-uniform contraction)
 - The generator validates node references and signed element volumes.
 
 ### Texture from an ODB
