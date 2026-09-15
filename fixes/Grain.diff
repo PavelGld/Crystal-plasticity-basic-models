@@ -1,9 +1,0 @@
-132a133,140
->     // NLGEOM=YES: приращение жёсткого вращения базиса Abaqus (DROT). Состояние хранится в КСК,
->     // поэтому поворот базиса эквивалентен повороту ориентации решётки: R_lat <- dR * R_lat.
->     void rotate_lattice(const Eigen::Matrix3d& dR) {
->         Eigen::Quaterniond dq(dR);
->         orient_q = (dq * orient_q).normalized();
->         R_buf = orient_q.toRotationMatrix();
->         T_voigt_valid = false;
->     }

@@ -135,35 +135,42 @@ tests.exe --test-case="no rotation"  # фильтр по имени теста
 ```bash
 build_cp_umat.bat
 ```
-Требуется: MSVC 2022, Eigen 3.4+, Abaqus 2022.
+Требуется: MSVC 2022, Eigen 3.4+, Abaqus 2022. Результат — `cp_umat/cp_umat.obj`.
 
-**Запуск** (из папки `cp_umat_validation/`):
+**Запуск** — готовые примеры в `examples/` (каждый со своим `run.bat`):
+
+| Пример | Что показывает |
+|---|---|
+| [`examples/01_single_element`](examples/01_single_element/) | 1 элемент, smoke-тест сборки/линковки |
+| [`examples/02_cube_343_random`](examples/02_cube_343_random/) | куб 7×7×7, материал-на-элемент |
+| [`examples/03_neper_200grains_symmetry`](examples/03_neper_200grains_symmetry/) | Neper-структура 200 зёрен, симметричные ГУ |
+| [`examples/04_neper_200grains_free`](examples/04_neper_200grains_free/) | то же, честное растяжение (4 грани свободны) |
+
 ```bash
-# Однопоточный расчёт
-abaqus job=tension_343el_random user=..\cp_umat\cp_umat.obj cpus=1 int
-
-# Многопоточный расчёт (рекомендуется)
-abaqus job=tension_343el_random user=..\cp_umat\cp_umat.obj cpus=4 mp_mode=threads standard_parallel=all int
-
-# Конечные деформации (NLGEOM=YES)
-abaqus job=tension_343el_100pct user=..\cp_umat\cp_umat.obj cpus=4 mp_mode=threads standard_parallel=all int
+cd examples/03_neper_200grains_symmetry
+run.bat
 ```
 
-**Тестовые .inp файлы:**
-- `tension_8el_random.inp` — 8 элементов (быстрая проверка)
-- `tension_343el_random.inp` — 343 элемента (7×7×7, основной тест, 30% деформации)
-- `tension_343el_100pct.inp` — 343 элемента, 100% деформации, NLGEOM=YES
-
-**Производительность (343 элемента, n_power=50):**
-| Режим | Время | Ускорение |
-|---|---|---|
-| cpus=1, NLGEOM=NO | ~3 часа | 1x |
-| cpus=4, NLGEOM=NO | 4 мин | ~45x |
-| cpus=4, NLGEOM=YES, 100% | ~15 мин | ~12x |
-
-**Извлечение результатов (S33):**
+**Neper → Abaqus** (`scripts/neper2abaqus.py`):
 ```bash
-abaqus python extract_s33.py tension_343el_100pct s33_output.txt
+python scripts/neper2abaqus.py meshes/neper_200gr_11135el out.inp \
+       1.0 0.0001 0.001 mesh_c sym
+```
+Аргументы: `<папка_меша> <out.inp> [strain] [dt_start] [dt_max] [имя_меша] [sym|free]`.
+Подробности — в [examples/README.md](examples/README.md).
+
+**Производительность (200 зёрен, n_power=50, cpus=4):**
+
+| Сетка | Элементов | Время до 100% |
+|---|---|---|
+| мелкая (C3D10) | 46 499 | ~50 ч |
+| грубая (C3D4) | 11 135 | **~8 мин** |
+
+**Извлечение результатов** (`scripts/`):
+```bash
+abaqus python scripts/extract_s33.py model s33.txt        # S33 по элементам
+abaqus python scripts/extract_quats.py model quats.txt    # ориентации (SDV7-10)
+python scripts/polefigures.py quats.txt PF.png "title" 0  # полюсные фигуры (ось X)
 ```
 
 ### Построение полюсных фигур (MATLAB + MTEX)
@@ -237,43 +244,45 @@ rve.Simulate_Step_Soft(dt, dS_dt);
 
 ```
 EigenProject/
-├── tensor_utils.h                — общие функции тензорной алгебры (Voigt, 9d)
-├── MaterialParams.h/cpp          — материальные параметры (shared_ptr)
-├── Grain.h/cpp                   — класс зерна
-├── RVE.h/cpp                     — представительский объём (RVE)
-├── EigenProject.cpp              — main() проекта (работа с моделью)
-├── grain.txt                     — FCC материал (12 систем {111}<110>)
-├── rve_validation.txt            — конфиг RVE (1000 зёрен)
-├── grain_test_iso.txt            — материал с hard_mode=1 (изотропное упрочнение)
-├── rve_validation_iso.txt        — конфиг RVE для изотропного упрочнения
-├── dochtet.h                    — фреймворк для автотестов
-├── grain_test_shear.txt          — материал для теста поворота (rot_mode=1)
-├── grain_implicit.txt             — материал с integ_mode=1 (неявная схема, hard_mode=2)
-├── rve_validation_impl.txt        — конфиг RVE для неявной схемы
-├── grain_test_iso_impl.txt        — изотропное упрочнение + integ_mode=1
-├── tests.cpp                     — автоматизированные тесты (7 тестов)
-│
-├── cp_model/                     — header-only библиотека (thread-safe)
-│   ├── tensor_utils.hpp          — Voigt ↔ tensor conversion
-│   ├── MaterialParams.hpp        — структура материала
-│   └── Grain.hpp                 — класс зерна (интеграция)
+├── cp_model/                     — header-only библиотека (модель материала)
+│   ├── tensor_utils.hpp          — Voigt ↔ tensor
+│   ├── MaterialParams.hpp        — параметры материала
+│   ├── Grain.hpp                 — зерно (интеграция, тангенс)
+│   └── RVE.hpp                   — поликристалл (осреднение)
 │
 ├── cp_umat/                      — Abaqus/Standard UMAT
-│   ├── cp_umat.cpp               — UMAT entry (thread-safe, __declspec(thread))
-│   ├── cp_umat_interface.hpp     — CPUMAT class
-│   ├── cp_umat_types.hpp         — A_to_V / V_to_A conversion
-│   └── build_cp_umat.bat         — сборка (MSVC, /GR- /EHsc-)
+│   ├── cp_umat.cpp               — UMAT entry (thread-safe)
+│   ├── cp_umat_interface.hpp     — класс CPUMAT
+│   ├── cp_umat_types.hpp         — A_to_V / V_to_A
+│   ├── build_cp_umat.bat         — сборка (MSVC /GR- /EHsc-)
+│   └── README.md                 — описание UMAT
 │
-├── cp_umat_validation/           — тесты и .inp файлы для Abaqus
-│   ├── tension_8el_random.inp    — 8-элементный тест
-│   ├── tension_343el_random.inp  — 343-элементный тест (7×7×7)
-│   └── extract_s33.py            — извлечение S33 из ODB
+├── scripts/                      — утилиты
+│   ├── neper2abaqus.py           — Neper mesh.inp/.ori → Abaqus deck
+│   ├── extract_s33.py            — ODB → S33 по элементам
+│   ├── extract_quats.py          — ODB → ориентации решётки (SDV7-10)
+│   └── polefigures.py            — ориентации → {100}/{110}/{111} полюсные фигуры
 │
-├── rotation_validation_test_results/
-│   ├── rotation_validation.cpp   — валидация: unit-тесты + текстуры
-│   ├── plot_polefigures.m        — MTEX скрипт для полюсных фигур
-│   ├── orientations_*.txt        — ориентации на 30/50/100%
-│   └── PF_*.png                  — полюсные фигуры
+├── meshes/                       — структуры Neper (200 зёрен)
+│   ├── neper_200gr_11135el/      — грубая сетка (C3D4, быстрая)
+│   └── neper_200gr_46499el/      — мелкая сетка (C3D10)
+│
+├── examples/                     — готовые примеры расчётов
+│   ├── 01_single_element/        — 1 элемент (smoke-тест)
+│   ├── 02_cube_343_random/       — куб 7×7×7, материал-на-элемент
+│   ├── 03_neper_200grains_symmetry/  — Neper, симметричные ГУ
+│   └── 04_neper_200grains_free/  — Neper, честное растяжение
+│
+├── docs/                         — документация
+│   ├── IMPLICIT_INCREMENT_NOTES.md   — заметки по размеру инкремента
+│   └── archive/                  — история отладки UMAT
+│
+├── rotation_validation_test_results/  — валидация текстур (standalone + MTEX)
+├── simulation_experiments/       — эксперименты с шагом dt (standalone)
+│
+├── EigenProject.cpp/.sln/.vcxproj — standalone-проект (RVE, тесты)
+├── tests.cpp, doctest.h          — автотесты (18 тестов)
+├── grain*.txt, rve*.txt          — конфиги материала и RVE
 │
 ├── CONTEXT.md                    — техническая документация
 └── README.md                     — этот файл

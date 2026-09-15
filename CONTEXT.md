@@ -10,33 +10,46 @@ C++ реализация модели кристаллической пласт�
 
 ```
 EigenProject/
-├── tensor_utils.h                — общие функции тензорной алгебры (Voigt, 9d)
-├── MaterialParams.h/cpp          — структура материальных параметров (shared_ptr)
-├── Grain.h/cpp                   — класс зерна (ориентация, системы скольжения, интеграция)
-├── RVE.h/cpp                     — представительский объём (множество зёрен, осреднение)
-├── EigenProject.cpp              — main() проекта (работа с моделью)
-├── grain.txt                     — параметры материала (FCC, 12 систем {111}<110>, hard_mode=2)
-├── rve_validation.txt            — конфиг RVE (1000 зёрен, Kocks-Mecking)
-├── grain_test_iso.txt            — материал с hard_mode=1 (изотропное упрочнение)
-├── rve_validation_iso.txt        — конфиг RVE для изотропного упрочнения
-├── dochtet.h                     — фреймворк doctest для автотестов
-├── tests.cpp                     — автоматизированные тесты (7 тестов, 35 checks)
-├── grain_test_shear.txt          — материал с rot_mode=1 для теста поворота
-├── grain_implicit.txt             — материал с integ_mode=1 (неявная схема, hard_mode=2)
-├── grain_test_iso_impl.txt        — изотропное упрочнение + integ_mode=1
-├── rve_validation_impl.txt        — конфиг RVE для неявной схемы
+├── cp_model/                       — header-only библиотека (модель)
+│   ├── tensor_utils.hpp            — Voigt ↔ tensor
+│   ├── MaterialParams.hpp          — параметры материала
+│   ├── Grain.hpp                   — зерно (интеграция, тангенс)
+│   └── RVE.hpp                     — поликристалл (осреднение)
 │
-├── rotation_validation_test_results/
-│   ├── rotation_validation.cpp   — файл валидации: unit-тесты + генерация текстур
-│   ├── plot_polefigures.m        — скрипт MTEX для построения полюсных фигур
-│   ├── orientations_*.txt        — выходные ориентации (30%, 50%, 100%)
-│   ├── PF_*.png                  — полюсные фигуры {111}, {110}, {100}
-│   ├── Stress_strain_hard_loading_iso.txt  — σ-ε кривая изотропного упрочнения
-│   ├── grain_test_iso.txt        — материал hard_mode=1
-│   └── rve_validation_iso.txt    — конфиг RVE изотропного упрочнения
+├── cp_umat/                        — Abaqus/Standard UMAT
+│   ├── cp_umat.cpp                 — UMAT entry (thread-safe)
+│   ├── cp_umat_interface.hpp       — класс CPUMAT
+│   ├── cp_umat_types.hpp           — A_to_V / V_to_A
+│   ├── build_cp_umat.bat           — сборка (MSVC /GR- /EHsc-)
+│   └── README.md
 │
-├── CONTEXT.md                    — этот файл (техническая документация)
-└── README.md                     — обзор проекта
+├── scripts/                        — утилиты
+│   ├── neper2abaqus.py             — Neper mesh.inp/.ori → Abaqus deck
+│   ├── extract_s33.py              — ODB → S33
+│   ├── extract_quats.py            — ODB → ориентации (SDV7-10)
+│   └── polefigures.py              — ориентации → полюсные фигуры
+│
+├── meshes/                         — структуры Neper (200 зёрен)
+│   ├── neper_200gr_11135el/        — грубая (C3D4)
+│   └── neper_200gr_46499el/        — мелкая (C3D10)
+│
+├── examples/                       — готовые примеры (см. examples/README.md)
+│   ├── 01_single_element/
+│   ├── 02_cube_343_random/
+│   ├── 03_neper_200grains_symmetry/
+│   └── 04_neper_200grains_free/
+│
+├── docs/                           — документация и архив отладки UMAT
+│
+├── rotation_validation_test_results/  — валидация текстур (standalone, MTEX)
+├── simulation_experiments/         — эксперименты с шагом dt
+│
+├── EigenProject.cpp/.sln/.vcxproj  — standalone-проект (RVE, тесты)
+├── tests.cpp, doctest.h            — автотесты (18 тестов, 256 checks)
+├── grain*.txt, rve*.txt            — конфиги материала/RVE
+│
+├── CONTEXT.md                      — этот файл (техническая документация)
+└── README.md                       — обзор проекта
 ```
 
 ## Структура MaterialParams
