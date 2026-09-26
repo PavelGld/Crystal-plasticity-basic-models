@@ -129,6 +129,7 @@ class Grain
     MatK6 Y2_k, W_k;                // Z = J⁻¹·E·Sτ₀ и dγ̇/dε (активные системы)
     MatN6 St_buf, XSt_buf;          // Sτ = dτc/dε (n×6) и X·Sτ₀
     VecN  u_buf;                    // h'_j·γ̇_j
+    Eigen::Matrix<double, 1, 6> SGamma_buf;   // dΓ/dε — изотропное упрочнение (hard_mode=1)
     Eigen::Matrix<double, 3, 6> dTh_buf;   // dθ/dε — поворот решётки за инкремент (КСК)
     bool coupling_failed = false;   // внутренний Ньютон не сошёлся (→ fallback в solve_implicit)
     bool coupling_active = false;   // связка решалась в последней evaluate_Dp (lu_k, Y_k, dy_k валидны)
@@ -579,9 +580,9 @@ inline void Grain::coupling_jacobian(double dt)
     const double npow = params->n_power;
     J_k.setIdentity(n_act, n_act);
     if (params->hard_mode == 0) return;
+    const int n = 2 * params->num_slip_sys;
     double iso_d = 0.0;
     if (params->hard_mode == 1) {
-        const int n = 2 * params->num_slip_sys;
         double S = 0.0;
         for (int i = 0; i < n; i++) S += shifts[i] + gamma_dot(i) * dt;
         iso_d = (S > 1e-300) ? params->iso_a * params->iso_b * std::pow(S, params->iso_b - 1.0) : 0.0;
@@ -592,7 +593,15 @@ inline void Grain::coupling_jacobian(double dt)
         double f = npow / tc_eff(i) * dt;
         for (int b = 0; b < n_act; b++) {
             int j = act_idx[b];
-            double dxdg = (params->hard_mode == 2) ? H(i, j) : iso_d;   // ∂τc_eff_i/∂γ̇_j / Δt
+            double dxdg = 0.0;
+            if (params->hard_mode == 2)
+                dxdg = H(i, j);
+            else if (params->hard_mode == 1) {
+                // Γ = Σ_j (shifts_j + γ̇_j·Δt) ⇒ ∂τc_eff_i/∂γ̇_j = a·b·Γ^(b−1)·Δt.
+                // Множитель Δt уже содержится в f = n/τc_eff·Δt, поэтому здесь — без Δt
+                // (как и для KM: dxdg = H(i,j), а ∂τc_eff_i/∂γ̇_j = Δt·H(i,j)).
+                dxdg = iso_d;
+            }
             J_k(a, b) += f * dxdg * gamma_dot(j);
         }
     }
@@ -848,8 +857,19 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
             rhs.noalias() += weight * params->P_v;
         }
 
-        const bool km = (params->hard_mode == 2) && coupling_active;
+        const bool km  = (params->hard_mode == 2) && coupling_active;
+        const bool iso = (params->hard_mode == 1) && coupling_active;
         const int  na = coupling_active ? n_act : 0;
+        // Изотропное упрочнение: τc_eff = tc0 + a·Γ^b, Γ = Σ_j(shifts_j + γ̇_j·Δt).
+        // Состояние цепочки — Γ (скаляр), поэтому X = ∂τc_eff/∂Γ = a·b·Γ^(b−1).
+        double iso_gp = 0.0;
+        if (iso) {
+            double Gamma = 0.0;
+            for (int j = 0; j < n; j++) Gamma += shifts[j];
+            for (int a = 0; a < n_act; a++) Gamma += dt * gamma_dot(act_idx[a]);
+            if (Gamma > 1e-300)
+                iso_gp = params->iso_a * params->iso_b * std::pow(Gamma, params->iso_b - 1.0);
+        }
         if (km) {
             // u_j = h'_j·γ̇_j,  h_j = A·h0·(1 − tc_j/ts)^α (при tc_j ≤ ts)
             for (int j = 0; j < n; j++) {
@@ -877,6 +897,21 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
                 KSt.noalias() += (params->MsE_v[i] * gamma_dot(i)) * Y2_k.row(a);
             }
             rhs.noalias() += dt * params->P_v * KSt;
+        } else if (iso) {
+            // Sτ₀ = gp·SΓ₀;  Z = J⁻¹·E·Sτ₀,  E_a = (n/τc_eff_a)·gp·SΓ₀ (строки клампа — 0)
+            Y2_k.resize(n_act, 6);
+            for (int a = 0; a < n_act; a++) {
+                int i = act_idx[a];
+                if (act_clamped[a]) Y2_k.row(a).setZero();
+                else                Y2_k.row(a) = (params->n_power / tc_eff(i)) * iso_gp * SGamma_buf;
+            }
+            Y2_k = lu_k.solve(Y2_k).eval();                         // = Z
+            Matrix6d KSt = Matrix6d::Zero();
+            for (int a = 0; a < n_act; a++) {
+                int i = act_idx[a];
+                KSt.noalias() += (params->MsE_v[i] * gamma_dot(i)) * Y2_k.row(a);
+            }
+            rhs.noalias() += dt * params->P_v * KSt;
         }
 
         tangent_buf = lu.solve(rhs);                                // Sσ₁
@@ -886,7 +921,7 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
         for (int a = 0; a < na; a++) {
             int j = act_idx[a];
             Eigen::Matrix<double,1,6> dy = Y_k.row(a) * tangent_buf + dy_k(a) * gE.transpose();
-            if (km) dy -= Y2_k.row(a);
+            if (km || iso) dy -= Y2_k.row(a);
             W_k.row(a) = gamma_dot(j) * dy;
         }
         // Поворот решётки за подшаг: R ← R·exp([θ]×), θ = Δt·axial(W − Wᵖ); W от ε не зависит
@@ -907,6 +942,11 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
                 int i = act_idx[a];
                 St_buf.row(i) += dt * (1.0 - params->q) * H(i, i) * W_k.row(a);
             }
+        } else if (iso) {
+            // Γ₁ = Γ₀ + Δt·Σ_j γ̇_j  →  dΓ₁/dε = dΓ₀/dε + Δt·Σ_j dγ̇_j/dε
+            Eigen::Matrix<double,1,6> Ssum; Ssum.setZero();
+            for (int a = 0; a < na; a++) Ssum += W_k.row(a);
+            SGamma_buf += dt * Ssum;
         }
     }
 
@@ -982,6 +1022,7 @@ inline void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
     if (params->integ_mode == 1) {
         tangent_buf.setZero();   // аккумулятор цепного тангенса на весь инкремент: dσ/dε
         St_buf.setZero();        // и dτc/dε (состояние начала инкремента от ε не зависит)
+        SGamma_buf.setZero();    // и dΓ/dε (hard_mode=1)
         dTh_buf.setZero();       // и dθ/dε (поворот решётки)
     }
 
@@ -991,12 +1032,12 @@ inline void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 
         clear();
 
-        // Transform L to crystal frame (orientation may have changed on previous substep)
-        if (params->rot_mode != 0) {
-            L.noalias() = R_buf.transpose() * Lnew * R_buf;
-        } else {
-            L = Lnew;
-        }
+        // L всегда переводится в КСК: конститутив (Ms_v, P_v, Stress_v, tc) ведётся
+        // в КСК, а get_stress_lab() поворачивает результат обратно. При rot_mode=0
+        // решётка не вращается (apply_rotation выходит сразу), но преобразование L
+        // всё равно необходимо — иначе при неединичной ориентации нагрузка
+        // интерпретируется как кристаллическая.
+        L.noalias() = R_buf.transpose() * Lnew * R_buf;
         Buf.noalias() = 0.5 * (L + L.transpose());
         tensorToVoigtInPlace(Buf, D_v);
 
@@ -1134,7 +1175,7 @@ inline void Grain::set_orientation(const Eigen::Quaterniond& q)
 
 inline void Grain::apply_basis_rotation(const Eigen::Matrix3d& DROT)
 {
-    // R_lat ← DROT · DROT
+    // R_lat ← DROT · R_lat
     Eigen::Quaterniond q_rot(DROT);
     q_rot.normalize();
     orient_q = q_rot * orient_q;

@@ -598,9 +598,9 @@ inline void Grain::coupling_jacobian(double dt)
                 dxdg = H(i, j);
             else if (params->hard_mode == 1) {
                 // Γ = Σ_j (shifts_j + γ̇_j·Δt) ⇒ ∂τc_eff_i/∂γ̇_j = a·b·Γ^(b−1)·Δt.
-                // Раньше Δt не было (комментарий «/ Δt» не соответствовал коду) —
-                // Якобиан занижался в Δt раз, Ньютон сходился к неверной точке.
-                dxdg = iso_d * dt;
+                // Множитель Δt уже содержится в f = n/τc_eff·Δt, поэтому здесь — без Δt
+                // (как и для KM: dxdg = H(i,j), а ∂τc_eff_i/∂γ̇_j = Δt·H(i,j)).
+                dxdg = iso_d;
             }
             J_k(a, b) += f * dxdg * gamma_dot(j);
         }
@@ -1175,7 +1175,7 @@ inline void Grain::set_orientation(const Eigen::Quaterniond& q)
 
 inline void Grain::apply_basis_rotation(const Eigen::Matrix3d& DROT)
 {
-    // R_lat ← DROT · DROT
+    // R_lat ← DROT · R_lat
     Eigen::Quaterniond q_rot(DROT);
     q_rot.normalize();
     orient_q = q_rot * orient_q;
