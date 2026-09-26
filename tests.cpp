@@ -413,8 +413,11 @@ TEST_CASE("implicit tangent FD isotropic multi-substep") {
     // Дефект hard_mode=1: цепочка dΓ/dε через подшаги не переносилась, поэтому при
     // инкременте в N подшагов тангенс терял упрочнение (E_t ≈ 1/N от истинного).
     // Здесь для инкремента, заведомо требующего нескольких подшагов
-    // (Δε = 5e-3 при DS_CRITICAL_IMPL = 2e-3), сравниваем аналитический одноосный
-    // модуль E_t = 1/(C⁻¹)₃₃ с конечными разностями по σ33/Δε33.
+    // (Δε = 5e-3 при DS_CRITICAL_IMPL = 2e-3), сравниваем компоненту тангенса
+    // T(2,2) = ∂σ33/∂ε33 со строгой производной по конечным разностям.
+    // ВАЖНО: E_t через 1/(T⁻¹)(2,2) здесь непригоден — полный 6×6 касательный
+    // модуль плохо обусловлен (нормальные/сдвиговые связи дают det ~1e53),
+    // и обращение усиливает ошибку до ~100×, хотя сама T(2,2) верна.
     Grain gr("grain_test_iso_impl.txt");
 
     double eps_dot_local = 0.017;
@@ -427,7 +430,6 @@ TEST_CASE("implicit tangent FD isotropic multi-substep") {
         gr.Simulate_Step(1e-3, L);       // развитая пластика
 
     const double dt_local = 5e-3 / eps_dot_local;   // Δε33 = 5e-3 → несколько подшагов
-    Eigen::Matrix3d dL = Eigen::Matrix3d::Zero();
     const double pert = 1e-3;                        // Δε33 += ±1e-3·Δε33
 
     Grain gr_p = gr;
@@ -442,16 +444,15 @@ TEST_CASE("implicit tangent FD isotropic multi-substep") {
 
     double dS = (gr_p.get_stress()(2) - gr_m.get_stress()(2));
     double dE = (Lp(2, 2) - Lm(2, 2)) * dt_local;   // приращение ε33
-    double Et_fd = dS / dE;
+    double T22_fd = dS / dE;
 
     Grain gr_a = gr;
     gr_a.Simulate_Step(dt_local, L);
     Matrix6d T = Matrix6d::Zero();
     gr_a.get_tangent_crystal_into(T);
-    double Et_an = 1.0 / T.inverse()(2, 2);
 
-    CHECK(Et_fd == doctest::Approx(Et_an).epsilon(0.02));
-    CHECK(Et_an > 0.0);
+    CHECK(T(2, 2) == doctest::Approx(T22_fd).epsilon(0.02));
+    CHECK(T(2, 2) > 0.0);
 }
 
 TEST_CASE("implicit RVE tangent") {
