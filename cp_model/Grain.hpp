@@ -96,6 +96,49 @@ class Grain
     Eigen::MatrixXd G_prev;         // G с предыдущего sweep'а, n×6
     double rate_factor_impl = 0.0;  // γ̇₀ · D_eq на текущий шаг
 
+    // --- Ньютон по связке γ̇ ↔ τc (evaluate_Dp) -------------------------------
+    // Неизвестные: y_a = ln γ̇_a для систем с τ_a > 0. Размеры фиксированы сверху
+    // (MAX_SYS) — стековые/членные буферы без кучи (важно для UMAT без CRT).
+    // MAX_SYS — все системы (±b), MAX_ACT — активные (τ>0): из пары ±b активна не более одной.
+    static constexpr int MAX_SYS = 48;
+    static constexpr int MAX_ACT = MAX_SYS / 2;
+    using MatK  = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, 0, MAX_ACT, MAX_ACT>;
+    using VecK  = Eigen::Matrix<double, Eigen::Dynamic, 1, 0, MAX_ACT, 1>;
+    using MatK6 = Eigen::Matrix<double, Eigen::Dynamic, 6, 0, MAX_ACT, 6>;
+    using MatN6 = Eigen::Matrix<double, Eigen::Dynamic, 6, 0, MAX_SYS, 6>;
+    using VecN  = Eigen::Matrix<double, Eigen::Dynamic, 1, 0, MAX_SYS, 1>;
+    static constexpr double COUPLING_TOL = 1e-11;   // |r|_inf в лог-единицах (отн. точность γ̇)
+    static constexpr int COUPLING_MAX_ITER = 50;
+#ifndef CP_GAIN_MAX
+#define CP_GAIN_MAX 0.5
+#endif
+    // Предел самоусиления g = max_a n·Δt·h_a·γ̇_a/τc_eff_a на подшаге. При q>1 матрица H
+    // знаконеопределена, и при g ≥ 1 якобиан связки вырождается (1−g) — шаг BE теряет
+    // единственность. Превышение → бисекция подшага (как при несходимости).
+    static constexpr double GAIN_MAX = CP_GAIN_MAX;
+    static constexpr double DTAU_MAX = 0.1;   // макс. прирост τ/τc за итерацию внешнего Ньютона
+    double last_gain = 0.0;
+    int  act_idx[MAX_ACT];
+    int  n_act = 0;
+    bool act_clamped[MAX_ACT];
+    VecK y_k, r_k, dy_k, ytry_k, rtry_k;
+    MatK J_k;
+    MatK6 Y_k;
+    Eigen::PartialPivLU<MatK> lu_k;
+    Vector6d Dp_rf_v;               // ∂Dᵖ/∂ln(rf): для поправки тангенса на зависимость rf от D
+    MatK6 Y2_k, W_k;                // Z = J⁻¹·E·Sτ₀ и dγ̇/dε (активные системы)
+    MatN6 St_buf, XSt_buf;          // Sτ = dτc/dε (n×6) и X·Sτ₀
+    VecN  u_buf;                    // h'_j·γ̇_j
+    Eigen::Matrix<double, 1, 6> SGamma_buf;   // dΓ/dε — изотропное упрочнение (hard_mode=1)
+    Eigen::Matrix<double, 3, 6> dTh_buf;   // dθ/dε — поворот решётки за инкремент (КСК)
+    bool coupling_failed = false;   // внутренний Ньютон не сошёлся (→ fallback в solve_implicit)
+    bool coupling_active = false;   // связка решалась в последней evaluate_Dp (lu_k, Y_k, dy_k валидны)
+    double y_warm[MAX_SYS];         // ln γ̇ из последней evaluate_Dp (тёплый старт внутри подшага)
+    bool   y_warm_ok[MAX_SYS];
+    bool   warm_valid = false;      // сбрасывается в начале каждого solve_implicit
+    double coupling_residual(const VecK& y, VecK& r, double dt);   // заполняет gamma_dot, tc_eff, act_clamped
+    void   coupling_jacobian(double dt);                            // J_k в текущей точке
+
     void solve_implicit(double dt, int depth, double weight);
     bool step_failed = false;   // local integrator failed at max fallback depth
     void evaluate_Dp(const Vector6d& sigma, double dt);
@@ -244,6 +287,7 @@ inline void Grain::init_common()
     Stress.setZero();
     D_v.setZero();
     Dp_v.setZero();
+    Dp_rf_v.setZero();
     Stress_v.setZero();
 
     orient_q = Eigen::Quaterniond::Identity();
@@ -256,6 +300,13 @@ inline void Grain::init_common()
     S_buf.setZero();
 
     int n = 2 * params->num_slip_sys;
+    if (n > MAX_SYS) {   // буферы неявной схемы рассчитаны на ≤ MAX_SYS систем (±b)
+#ifndef ABAQUS_UMAT
+        throw std::runtime_error("Grain: too many slip systems for MAX_SYS");
+#else
+        n = MAX_SYS;
+#endif
+    }
     last_step.assign(n, 0);
     new_step.assign(n, 0);
     tc.assign(n, params->tc0);
@@ -278,6 +329,8 @@ inline void Grain::init_common()
 
     tangent_buf.setZero();
     tangent_valid = false;
+    St_buf.setZero(n, 6); XSt_buf.setZero(n, 6); u_buf.setZero(n); dTh_buf.setZero();
+    W_k.setZero(n / 2, 6); Y2_k.setZero(n / 2, 6);
 
     T_voigt_valid = false;
     random_state = 0;
@@ -475,93 +528,193 @@ inline void Grain::apply_rotation(double dt)
     updateOrientation(Omega_buf, dt);
 }
 
-// Оценка Dp и производных для заданного σ (детерминированная функция σ:
-// фиксированное число sweep'ов fixed-point по γ̇↔τc).
-// Заполняет: tau_buf, gamma_dot, Dp_v (инженерная), tc_eff, G_prev (∂γ̇/∂σ).
+// ---------------------------------------------------------------------------
+// Связка γ̇ ↔ τc внутри шага (backward Euler по τc):
+//   τc_eff = tc + Δt·H·γ̇,   γ̇_a = rf·min(τ_a/τc_eff_a, RATIO_MAX)^n   (τ_a > 0)
+// Решается Ньютоном по y_a = ln γ̇_a:
+//   r_a(y) = y_a − ln rf − n·min(ln τ_a − ln τc_eff_a(y), ln RATIO_MAX) = 0
+//   J_ab   = δ_ab + (n/τc_eff_a)·∂τc_eff_a/∂γ̇_b·γ̇_b         (строка a = e_a, если кламп)
+// В лог-переменных невязка O(1) даже при n=50, J = I + неотрицательная матрица
+// (хорошо обусловлена), сходимость квадратичная за 3–6 итераций при любом усилении
+// n·H·Δγ/τc (прежняя фиксированная итерация расходилась при усилении > 1).
+// ---------------------------------------------------------------------------
+inline double Grain::coupling_residual(const VecK& y, VecK& r, double dt)
+{
+    const int n = 2 * params->num_slip_sys;
+    const double ln_rf = std::log(rate_factor_impl);
+    const double lnR   = std::log(RATIO_MAX);
+    const double npow  = params->n_power;
+
+    gamma_dot.setZero();
+    for (int a = 0; a < n_act; a++) gamma_dot(act_idx[a]) = std::exp(y(a));
+
+    // τc_eff(γ̇)
+    if (params->hard_mode == 2) {
+        // H = q·1·hᵀ + (1−q)·diag(h)  (так строит update_H_KM) → O(n)
+        double s_all = 0.0;
+        for (int a = 0; a < n_act; a++) { int j = act_idx[a]; s_all += H(j, j) * gamma_dot(j); }
+        for (int i = 0; i < n; i++)
+            tc_eff(i) = tc[i] + dt * (params->q * s_all + (1.0 - params->q) * H(i, i) * gamma_dot(i));
+    } else if (params->hard_mode == 1) {
+        double S = 0.0;
+        for (int i = 0; i < n; i++) S += shifts[i] + gamma_dot(i) * dt;
+        tc_eff.setConstant(params->tc0 + params->iso_a * std::pow(S, params->iso_b));
+    } else {
+        for (int i = 0; i < n; i++) tc_eff(i) = tc[i];
+    }
+
+    double rmax = 0.0;
+    for (int a = 0; a < n_act; a++) {
+        int i = act_idx[a];
+        double lr = std::log(tau_buf(i)) - std::log(tc_eff(i));
+        act_clamped[a] = (lr > lnR);
+        if (act_clamped[a]) lr = lnR;
+        r(a) = y(a) - ln_rf - npow * lr;
+        rmax = std::max(rmax, std::abs(r(a)));
+    }
+    return rmax;
+}
+
+inline void Grain::coupling_jacobian(double dt)
+{
+    const double npow = params->n_power;
+    J_k.setIdentity(n_act, n_act);
+    if (params->hard_mode == 0) return;
+    const int n = 2 * params->num_slip_sys;
+    double iso_d = 0.0;
+    if (params->hard_mode == 1) {
+        double S = 0.0;
+        for (int i = 0; i < n; i++) S += shifts[i] + gamma_dot(i) * dt;
+        iso_d = (S > 1e-300) ? params->iso_a * params->iso_b * std::pow(S, params->iso_b - 1.0) : 0.0;
+    }
+    for (int a = 0; a < n_act; a++) {
+        if (act_clamped[a]) continue;
+        int i = act_idx[a];
+        double f = npow / tc_eff(i) * dt;
+        for (int b = 0; b < n_act; b++) {
+            int j = act_idx[b];
+            double dxdg = 0.0;
+            if (params->hard_mode == 2)
+                dxdg = H(i, j);
+            else if (params->hard_mode == 1) {
+                // Γ = Σ_j (shifts_j + γ̇_j·Δt) ⇒ ∂τc_eff_i/∂γ̇_j = a·b·Γ^(b−1)·Δt.
+                // Раньше Δt не было (комментарий «/ Δt» не соответствовал коду) —
+                // Якобиан занижался в Δt раз, Ньютон сходился к неверной точке.
+                dxdg = iso_d * dt;
+            }
+            J_k(a, b) += f * dxdg * gamma_dot(j);
+        }
+    }
+}
+
+// Оценка Dp и производных для заданного σ. Заполняет: tau_buf, gamma_dot, tc_eff,
+// Dp_v (инженерная), G_prev = ∂γ̇/∂σ (n×6, точная неявная производная),
+// Dp_rf_v = ∂Dp/∂ln(rf).
 inline void Grain::evaluate_Dp(const Vector6d& sigma, double dt)
 {
-    int n = 2 * params->num_slip_sys;
+    const int n = 2 * params->num_slip_sys;
+    const double npow = params->n_power;
 
     for (int i = 0; i < n; i++)
         tau_buf(i) = sigma.dot(params->Ms_v[i]);
 
     gamma_dot.setZero();
+    G_prev.setZero();
+    Dp_v.setZero();
+    Dp_rf_v.setZero();
+    coupling_failed = false;
+    coupling_active = false;
 
-    int sweeps = (params->hard_mode == 0) ? 1 : 3;
-    for (int s = 0; s < sweeps; s++)
-    {
-        // эффективные τc от текущего итерата γ̇
-        if (params->hard_mode == 2) {
-            // H = q·1·hᵀ + (1−q)·diag(h)  →  Σ_j H(i,j)γ̇_j = q·Σ_j h_j γ̇_j + (1−q)·h_i γ̇_i  (O(n))
-            double s_all = 0.0;
-            for (int j = 0; j < n; j++) s_all += H(j, j) * gamma_dot(j);
-            for (int i = 0; i < n; i++) {
-                double dtc = params->q * s_all + (1.0 - params->q) * H(i, i) * gamma_dot(i);
-                tc_eff(i) = tc[i] + dtc * dt;
-            }
-        } else if (params->hard_mode == 1) {
-            double gamma_tot = 0.0;
-            for (int i = 0; i < n; i++)
-                gamma_tot += shifts[i] + gamma_dot(i) * dt;
-            double tc_iso = params->tc0 + params->iso_a * std::pow(gamma_tot, params->iso_b);
-            tc_eff.setConstant(tc_iso);
-        } else {
-            for (int i = 0; i < n; i++)
-                tc_eff(i) = tc[i];
-        }
+    n_act = 0;
+    for (int i = 0; i < n && n_act < MAX_ACT; i++)
+        if (tau_buf(i) > 0.0) act_idx[n_act++] = i;
 
-        // Чистый степенной закон (без порога): γ̇ = rf·(τ/τc)^n для τ > 0.
-        // Решение от 2026-07-26: пороговый закон разрывен на τ=τc → у невязки
-        // Ньютона нет корня на упруго-пластическом переходе. Явная схема
-        // сохраняет порог; эквивалентность проверяется тестами (5%).
-        for (int i = 0; i < n; i++) {
-            if (tau_buf(i) > 0.0) {
-                double ratio = tau_buf(i) / tc_eff(i);
-                if (ratio > RATIO_MAX) ratio = RATIO_MAX;   // защита от переполнения pow
-                gamma_dot(i) = rate_factor_impl * std::pow(ratio, params->n_power);
-            } else {
-                gamma_dot(i) = 0.0;
-            }
+    if (rate_factor_impl <= 0.0 || n_act == 0) {
+        for (int i = 0; i < n; i++) tc_eff(i) = tc[i];
+        if (params->hard_mode == 1) {
+            double S = 0.0; for (int i = 0; i < n; i++) S += shifts[i];
+            tc_eff.setConstant(params->tc0 + params->iso_a * std::pow(S, params->iso_b));
         }
+        return;
     }
 
-    // Dp в инженерной нотации Фойгта (сдвиги ×2 — как в find_SS)
-    Dp_v.setZero();
-    for (int i = 0; i < n; i++)
-        if (gamma_dot(i) > 0.0)
-            Dp_v.noalias() += gamma_dot(i) * params->MsE_v[i];
+    const double ln_rf = std::log(rate_factor_impl);
+    const double y_cap = ln_rf + npow * std::log(RATIO_MAX) + 1.0;   // выше не бывает (кламп)
 
-// G = ∂γ̇/∂σ (n×6), та же схема sweep'ов; связка упрочнения — с предыдущего sweep'а
-        G_prev.setZero();
-        // rank-1 часть связки KM: R = Σ_j h_j G_prev.row(j)  (один проход, O(n·6))
-        Eigen::Matrix<double,1,6> R_all; R_all.setZero();
-        if (params->hard_mode == 2)
-            for (int j = 0; j < n; j++)
-                if (gamma_dot(j) > 0.0) R_all += H(j, j) * G_prev.row(j);
-        for (int s = 0; s < sweeps; s++)
-        {
-            for (int i = 0; i < n; i++) {
-                if (gamma_dot(i) > 0.0) {
-                    // производные в точке клампированного ratio (осознанное приближение за клампом)
-                    double a_i = params->n_power * gamma_dot(i) / tau_buf(i);
-                    double b_i = -params->n_power * gamma_dot(i) / tc_eff(i);
-                    G_buf.row(i) = a_i * params->Ms_v[i].transpose();
-                    if (params->hard_mode == 2) {
-                        G_buf.row(i) += (b_i * dt) * (params->q * R_all + (1.0 - params->q) * H(i, i) * G_prev.row(i));
-                    } else if (params->hard_mode == 1) {
-                    double gamma_tot = 0.0;
-                    for (int j = 0; j < n; j++)
-                        gamma_tot += shifts[j] + gamma_dot(j) * dt;
-                    double dh = (gamma_tot > 1e-30)
-                        ? params->iso_a * params->iso_b * std::pow(gamma_tot, params->iso_b - 1.0)
-                        : 0.0;
-                    G_buf.row(i) += (b_i * dh * dt) * G_prev.colwise().sum();
-                }
-            } else {
-                G_buf.row(i).setZero();
-            }
+    // Старт: τc_eff = tc (без упрочнения внутри шага) — "сверху" от корня.
+    y_k.resize(n_act); r_k.resize(n_act); dy_k.resize(n_act); ytry_k.resize(n_act); rtry_k.resize(n_act);
+    for (int a = 0; a < n_act; a++) {
+        int i = act_idx[a];
+        double tc_start = tc[i];
+        if (params->hard_mode == 1) {
+            double S = 0.0; for (int j = 0; j < n; j++) S += shifts[j];
+            tc_start = params->tc0 + params->iso_a * std::pow(S, params->iso_b);
         }
-        G_prev.swap(G_buf);
+        double lr = std::min(std::log(tau_buf(i)) - std::log(tc_start), std::log(RATIO_MAX));
+        y_k(a) = (warm_valid && y_warm_ok[i]) ? std::min(y_warm[i], y_cap) : ln_rf + npow * lr;
+    }
+
+    double rn = coupling_residual(y_k, r_k, dt);
+    int it = 0;
+    for (; it < COUPLING_MAX_ITER && rn > COUPLING_TOL; it++) {
+        coupling_jacobian(dt);
+        lu_k.compute(J_k);
+        dy_k.noalias() = lu_k.solve(-r_k);
+        double lam = 1.0, rn_try = rn;
+        bool ok = false;
+        const double phi0 = r_k.squaredNorm();
+        for (int bt = 0; bt < 8; bt++) {
+            for (int a = 0; a < n_act; a++) ytry_k(a) = std::min(y_k(a) + lam * dy_k(a), y_cap);
+            rn_try = coupling_residual(ytry_k, rtry_k, dt);
+            if (rtry_k.squaredNorm() <= (1.0 - 1e-4 * lam) * phi0) { ok = true; break; }
+            lam *= 0.5;
+        }
+        if (!ok) break;
+        y_k = ytry_k; r_k = rtry_k; rn = rn_try;
+    }
+    if (rn > COUPLING_TOL) {
+        // точку оставляем как есть (gamma_dot/tc_eff соответствуют y_k после
+        // последней оценки) — внешний Ньютон увидит невязку, fallback разрежет шаг
+        coupling_residual(y_k, r_k, dt);
+        coupling_failed = (rn > 1e-6);
+    }
+
+    coupling_active = true;
+    last_gain = 0.0;
+    if (params->hard_mode == 2)
+        for (int a = 0; a < n_act; a++) {
+            if (act_clamped[a]) continue;
+            int i = act_idx[a];
+            last_gain = std::max(last_gain, npow * dt * H(i, i) * gamma_dot(i) / tc_eff(i));
+        }
+    for (int i = 0; i < n; i++) y_warm_ok[i] = false;
+    for (int a = 0; a < n_act; a++) { y_warm[act_idx[a]] = y_k(a); y_warm_ok[act_idx[a]] = true; }
+    warm_valid = true;
+
+    // Dᵖ (инженерная нотация Фойгта)
+    for (int a = 0; a < n_act; a++) {
+        int i = act_idx[a];
+        Dp_v.noalias() += gamma_dot(i) * params->MsE_v[i];
+    }
+
+    // Точные производные через неявную функцию в сошедшейся точке:
+    //   ∂y/∂σ     = J⁻¹·diag(n/τ)·Ms      (строки клампа — 0)
+    //   ∂y/∂ln rf = J⁻¹·1
+    coupling_jacobian(dt);
+    lu_k.compute(J_k);
+    Y_k.resize(n_act, 6);
+    for (int a = 0; a < n_act; a++) {
+        int i = act_idx[a];
+        if (act_clamped[a]) Y_k.row(a).setZero();
+        else                Y_k.row(a) = (npow / tau_buf(i)) * params->Ms_v[i].transpose();
+    }
+    Y_k = lu_k.solve(Y_k).eval();
+    dy_k.setOnes(n_act);
+    dy_k = lu_k.solve(dy_k).eval();
+    for (int a = 0; a < n_act; a++) {
+        int i = act_idx[a];
+        G_prev.row(i) = gamma_dot(i) * Y_k.row(a);
+        Dp_rf_v.noalias() += (gamma_dot(i) * dy_k(a)) * params->MsE_v[i];
     }
 }
 
@@ -583,6 +736,7 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
     int n = 2 * params->num_slip_sys;
 
     rate_factor_impl = params->strain_rate_infl * computeDeviatoricDu();
+    warm_valid = false;   // новый подшаг: tc и rf другие
 
     trial_inc_v.noalias() = params->P_v * D_v;
     sigma_trial_v.noalias() = Stress_v + trial_inc_v * dt;
@@ -620,6 +774,12 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
         assemble_J(dt);
         Eigen::PartialPivLU<Matrix6d> lu(J_buf);
         delta_sigma_v = lu.solve(-res_v);
+        {   // Ограничение шага: прирост τ/τc любой системы за итерацию ≤ DTAU_MAX. Не пускает
+            // пробную точку в область τ/τc ≫ 1, где γ̇ огромна и связка при q>1 некорректна.
+            double m = 0.0;
+            for (int i = 0; i < n; i++) m = std::max(m, delta_sigma_v.dot(params->Ms_v[i]) / tc[i]);
+            if (m > DTAU_MAX) delta_sigma_v *= DTAU_MAX / m;
+        }
 
         double lambda = 1.0;
         double rnorm_new = rnorm;
@@ -629,7 +789,7 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
             sigma_new_v = Buf_v + lambda * delta_sigma_v;
             evaluate_Dp(sigma_new_v, dt);
             res_new_v = sigma_new_v - sigma_trial_v + params->P_v * Dp_v * dt;
-            rnorm_new = res_new_v.norm();
+            rnorm_new = coupling_failed ? 1e300 : res_new_v.norm();   // Dp(σ) не определена → отвергнуть
             if (rnorm_new <= (1.0 - 1e-4 * lambda) * rnorm) { accepted = true; break; }
             lambda *= 0.5;
         }
@@ -641,6 +801,12 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
         converged = (rnorm < NEWTON_TOL * scale);
     }
 
+    if (coupling_failed) converged = false;
+    int n_split = 2;
+    if (converged && last_gain > GAIN_MAX) {                  // шаг слишком велик для связки:
+        converged = false;                                    // g ∝ Δt → делим сразу на нужное число частей
+        n_split = std::min(64, std::max(2, (int)std::ceil(last_gain / (0.7 * GAIN_MAX))));
+    }
     if (!converged)
     {
             if (depth >= MAX_FALLBACK_DEPTH) {
@@ -652,9 +818,136 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
                 return;
 #endif
             }
-        solve_implicit(0.5 * dt, depth + 1, 0.5 * weight);
-        solve_implicit(0.5 * dt, depth + 1, 0.5 * weight);
+        for (int k = 0; k < n_split; k++) {
+            solve_implicit(dt / n_split, depth + 1, weight / n_split);
+            if (step_failed) return;
+        }
         return;
+    }
+
+    // ---- Консистентный тангенс (до обновления состояния: нужны tc и H начала подшага) ----
+    // Переносим по подшагам две чувствительности к полному приращению деформации ε:
+    //   Sσ = dσ/dε (tangent_buf, 6×6)   и   Sτ = dτc/dε (St_buf, n×6).
+    // Подшаг:  J_out·dσ₁ = dσ₀ + w·P_eff·dε + Δt·P·K·dτc₀
+    //          dτc₁     = X·dτc₀ + Δt·H·diag(γ̇)·dy,   dy = Y·dσ₁ + v·gεᵀ·dε − Z
+    // где J_out = I + Δt·P·Σ MsE⊗G, P_eff = P − P·(∂Dp/∂ln rf)·gᵀ, X = ∂τc_eff/∂τc₀|γ̇,
+    // Y = J⁻¹·diag(n/τ)·Ms, v = J⁻¹·1, Z = J⁻¹·diag(n/τc_eff)·X·Sτ₀, K·Sτ₀ = Σ MsE_a γ̇_a Z_a.
+    // Без Sτ цепочка теряла упрочнение предыдущих подшагов (E_t ≈ 1/N от истинного).
+    assemble_J(dt);
+    {
+        Eigen::PartialPivLU<Matrix6d> lu(J_buf);
+        double du = std::max(computeDeviatoricDu(), 1e-30);
+        Vector6d gE = Vector6d::Zero();            // ∂ln rf/∂ε (для ε — полного приращения)
+        Matrix6d rhs = tangent_buf;
+        if (du > 0 && Dp_rf_v.squaredNorm() > 0) {
+            double inv_3du2 = 1.0 / (3.0 * du * du);
+            Vector6d g;
+            double tr3 = (D_v(0) + D_v(1) + D_v(2)) / 3.0;
+            g(0) = 2.0 * (D_v(0) - tr3) * inv_3du2;
+            g(1) = 2.0 * (D_v(1) - tr3) * inv_3du2;
+            g(2) = 2.0 * (D_v(2) - tr3) * inv_3du2;
+            g(3) = D_v(3) * inv_3du2;
+            g(4) = D_v(4) * inv_3du2;
+            g(5) = D_v(5) * inv_3du2;
+            Matrix6d P_corrected = params->P_v;
+            P_corrected.noalias() -= (params->P_v * Dp_rf_v) * g.transpose();
+            rhs.noalias() += weight * P_corrected;
+            gE = g * (weight / dt);                 // D = ε/Δt_полн,  weight = Δt/Δt_полн
+        } else {
+            rhs.noalias() += weight * params->P_v;
+        }
+
+        const bool km  = (params->hard_mode == 2) && coupling_active;
+        const bool iso = (params->hard_mode == 1) && coupling_active;
+        const int  na = coupling_active ? n_act : 0;
+        // Изотропное упрочнение: τc_eff = tc0 + a·Γ^b, Γ = Σ_j(shifts_j + γ̇_j·Δt).
+        // Состояние цепочки — Γ (скаляр), поэтому X = ∂τc_eff/∂Γ = a·b·Γ^(b−1).
+        double iso_gp = 0.0;
+        if (iso) {
+            double Gamma = 0.0;
+            for (int j = 0; j < n; j++) Gamma += shifts[j];
+            for (int a = 0; a < n_act; a++) Gamma += dt * gamma_dot(act_idx[a]);
+            if (Gamma > 1e-300)
+                iso_gp = params->iso_a * params->iso_b * std::pow(Gamma, params->iso_b - 1.0);
+        }
+        if (km) {
+            // u_j = h'_j·γ̇_j,  h_j = A·h0·(1 − tc_j/ts)^α (при tc_j ≤ ts)
+            for (int j = 0; j < n; j++) {
+                double hp = 0.0;
+                if (tc[j] <= params->ts)
+                    hp = -params->A * params->h0 * params->alfa
+                         * std::pow(std::abs(1.0 - tc[j] / params->ts), params->alfa - 1.0) / params->ts;
+                u_buf(j) = hp * gamma_dot(j);
+            }
+            // XSt = X·Sτ₀,  X = I + Δt·(q·1·uᵀ + (1−q)·diag(u))
+            Eigen::Matrix<double,1,6> uSt = u_buf.transpose() * St_buf;
+            for (int i = 0; i < n; i++)
+                XSt_buf.row(i) = St_buf.row(i) + dt * (params->q * uSt + (1.0 - params->q) * u_buf(i) * St_buf.row(i));
+            // Z = J⁻¹·E·Sτ₀,  E_a = (n/τc_eff_a)·X_a (строки клампа — 0)
+            Y2_k.resize(n_act, 6);
+            for (int a = 0; a < n_act; a++) {
+                int i = act_idx[a];
+                if (act_clamped[a]) Y2_k.row(a).setZero();
+                else                Y2_k.row(a) = (params->n_power / tc_eff(i)) * XSt_buf.row(i);
+            }
+            Y2_k = lu_k.solve(Y2_k).eval();                         // = Z
+            Matrix6d KSt = Matrix6d::Zero();
+            for (int a = 0; a < n_act; a++) {
+                int i = act_idx[a];
+                KSt.noalias() += (params->MsE_v[i] * gamma_dot(i)) * Y2_k.row(a);
+            }
+            rhs.noalias() += dt * params->P_v * KSt;
+        } else if (iso) {
+            // Sτ₀ = gp·SΓ₀;  Z = J⁻¹·E·Sτ₀,  E_a = (n/τc_eff_a)·gp·SΓ₀ (строки клампа — 0)
+            Y2_k.resize(n_act, 6);
+            for (int a = 0; a < n_act; a++) {
+                int i = act_idx[a];
+                if (act_clamped[a]) Y2_k.row(a).setZero();
+                else                Y2_k.row(a) = (params->n_power / tc_eff(i)) * iso_gp * SGamma_buf;
+            }
+            Y2_k = lu_k.solve(Y2_k).eval();                         // = Z
+            Matrix6d KSt = Matrix6d::Zero();
+            for (int a = 0; a < n_act; a++) {
+                int i = act_idx[a];
+                KSt.noalias() += (params->MsE_v[i] * gamma_dot(i)) * Y2_k.row(a);
+            }
+            rhs.noalias() += dt * params->P_v * KSt;
+        }
+
+        tangent_buf = lu.solve(rhs);                                // Sσ₁
+
+        // dy/dε = Y·Sσ₁ + v·gεᵀ − Z ;  dγ̇/dε = diag(γ̇)·dy
+        W_k.resize(na, 6);
+        for (int a = 0; a < na; a++) {
+            int j = act_idx[a];
+            Eigen::Matrix<double,1,6> dy = Y_k.row(a) * tangent_buf + dy_k(a) * gE.transpose();
+            if (km || iso) dy -= Y2_k.row(a);
+            W_k.row(a) = gamma_dot(j) * dy;
+        }
+        // Поворот решётки за подшаг: R ← R·exp([θ]×), θ = Δt·axial(W − Wᵖ); W от ε не зависит
+        // (DSTRAN симметричен) → dθ/dε = −Δt·Σ axial(Wpm_a)·dγ̇_a/dε
+        if (params->rot_mode == 2) {
+            for (int a = 0; a < na; a++) {
+                const Eigen::Matrix3d& Wm = params->Wpm[act_idx[a]];
+                Eigen::Vector3d ax(0.5 * (Wm(2, 1) - Wm(1, 2)), 0.5 * (Wm(0, 2) - Wm(2, 0)), 0.5 * (Wm(1, 0) - Wm(0, 1)));
+                dTh_buf.noalias() -= dt * ax * W_k.row(a);
+            }
+        }
+        if (km) {
+            // dτc₁ = X·Sτ₀ + Δt·H·diag(γ̇)·dy
+            Eigen::Matrix<double,1,6> S_all; S_all.setZero();
+            for (int a = 0; a < na; a++) S_all += H(act_idx[a], act_idx[a]) * W_k.row(a);
+            for (int i = 0; i < n; i++) St_buf.row(i) = XSt_buf.row(i) + dt * params->q * S_all;
+            for (int a = 0; a < na; a++) {
+                int i = act_idx[a];
+                St_buf.row(i) += dt * (1.0 - params->q) * H(i, i) * W_k.row(a);
+            }
+        } else if (iso) {
+            // Γ₁ = Γ₀ + Δt·Σ_j γ̇_j  →  dΓ₁/dε = dΓ₀/dε + Δt·Σ_j dγ̇_j/dε
+            Eigen::Matrix<double,1,6> Ssum; Ssum.setZero();
+            for (int a = 0; a < na; a++) Ssum += W_k.row(a);
+            SGamma_buf += dt * Ssum;
+        }
     }
 
     // Обновление состояния по сошедшимся γ̇
@@ -669,31 +962,6 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
     if (params->hard_mode == 2)
         update_H_KM();
 
-    // Консистентный тангенс: J^{-1}·(P - c·g^T) на сошедшемся состоянии
-    // c = P·Dᵖ, g = ∂ln(du)/∂D_v. Поправка учитывает зависимость rate_factor от D.
-    assemble_J(dt);
-    {
-        Eigen::PartialPivLU<Matrix6d> lu(J_buf);
-        double du = std::max(computeDeviatoricDu(), 1e-30);
-        if (du > 0 && Dp_v.squaredNorm() > 0) {
-            double inv_3du2 = 1.0 / (3.0 * du * du);
-            Vector6d c = params->P_v * Dp_v;
-            Vector6d g;
-            double tr3 = (D_v(0) + D_v(1) + D_v(2)) / 3.0;
-            g(0) = 2.0 * (D_v(0) - tr3) * inv_3du2;
-            g(1) = 2.0 * (D_v(1) - tr3) * inv_3du2;
-            g(2) = 2.0 * (D_v(2) - tr3) * inv_3du2;
-            g(3) = D_v(3) * inv_3du2;
-            g(4) = D_v(4) * inv_3du2;
-            g(5) = D_v(5) * inv_3du2;
-            Matrix6d P_corrected = params->P_v;
-            P_corrected.noalias() -= c * g.transpose();
-            // Цепной консистентный тангенс по подшагам: C <- J^{-1}(C_prev + w*P_eff)
-            tangent_buf = lu.solve((tangent_buf + weight * P_corrected).eval());
-        } else {
-            tangent_buf = lu.solve((tangent_buf + weight * params->P_v).eval());
-        }
-    }
     tangent_valid = true;
 
     apply_rotation(dt);
@@ -751,8 +1019,12 @@ inline void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
     double sub_dt = dt / n_substeps;
 
     step_failed = false;
-    if (params->integ_mode == 1)
-        tangent_buf.setZero();   // аккумулятор цепного тангенса на весь инкремент
+    if (params->integ_mode == 1) {
+        tangent_buf.setZero();   // аккумулятор цепного тангенса на весь инкремент: dσ/dε
+        St_buf.setZero();        // и dτc/dε (состояние начала инкремента от ε не зависит)
+        SGamma_buf.setZero();    // и dΓ/dε (hard_mode=1)
+        dTh_buf.setZero();       // и dθ/dε (поворот решётки)
+    }
 
     double time_done = 0;
     for (int s = 0; s < n_substeps; s++) {
@@ -760,12 +1032,12 @@ inline void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 
         clear();
 
-        // Transform L to crystal frame (orientation may have changed on previous substep)
-        if (params->rot_mode != 0) {
-            L.noalias() = R_buf.transpose() * Lnew * R_buf;
-        } else {
-            L = Lnew;
-        }
+        // L всегда переводится в КСК: конститутив (Ms_v, P_v, Stress_v, tc) ведётся
+        // в КСК, а get_stress_lab() поворачивает результат обратно. При rot_mode=0
+        // решётка не вращается (apply_rotation выходит сразу), но преобразование L
+        // всё равно необходимо — иначе при неединичной ориентации нагрузка
+        // интерпретируется как кристаллическая.
+        L.noalias() = R_buf.transpose() * Lnew * R_buf;
         Buf.noalias() = 0.5 * (L + L.transpose());
         tensorToVoigtInPlace(Buf, D_v);
 
@@ -845,6 +1117,7 @@ inline void Grain::reset_state()
     if (params->hard_mode == 2)
     {
         H = params->H;
+        update_H_KM();   // H должна соответствовать tc0 (params->H задаёт лишь структуру)
     }
 }
 
@@ -976,6 +1249,21 @@ inline void Grain::get_tangent_lab_into(Matrix6d& result) const
         computeVoigtRotationInPlace(T_voigt_inv_buf, R_buf.transpose());
         T_voigt_valid = true;
     }
-    Buf_P.noalias() = T_voigt_buf * tangent_buf;
+    // σ_lab = R·σ_cr·Rᵀ, dR = R·[dθ]×  →  dσ_lab = R·(dσ_cr + [dθ]×σ_cr − σ_cr[dθ]×)·Rᵀ
+    Matrix6d Ct = tangent_buf;
+    if (params->rot_mode == 2 && params->integ_mode == 1) {
+        Eigen::Matrix3d Sc; voigtToTensorInPlace(Stress_v, Sc);
+        Eigen::Matrix<double, 6, 3> Mrot;
+        for (int k = 0; k < 3; k++) {
+            Eigen::Matrix3d Ek = Eigen::Matrix3d::Zero();
+            int k1 = (k + 1) % 3, k2 = (k + 2) % 3;
+            Ek(k2, k1) = 1.0; Ek(k1, k2) = -1.0;          // [e_k]×
+            Eigen::Matrix3d A = Ek * Sc - Sc * Ek;
+            Vector6d av; tensorToVoigtInPlace(A, av);
+            Mrot.col(k) = av;
+        }
+        Ct.noalias() += Mrot * dTh_buf;
+    }
+    Buf_P.noalias() = T_voigt_buf * Ct;
     result.noalias() = Buf_P * T_voigt_inv_buf;
 }

@@ -101,6 +101,11 @@ inline void read_rve_config(const std::string& config_file, int& num_materials,
 inline void build_grains_from_config(const std::vector<MaterialParamsPtr>& materials,
     std::vector<Grain>& grains, const std::vector<int>& grains_per_mat, unsigned master_seed)
 {
+    // Ориентации должны зависеть только от master_seed, а не от того, сколько
+    // rand() потратили ранее созданные RVE: Eigen::Quaterniond::UnitRandom()
+    // читает глобальный C-RNG. Без явного srand (в частности при master_seed==0)
+    // результат зависел от набора и порядка запущенных тестов.
+    std::srand(master_seed);
     grains.clear();
     for (size_t m = 0; m < materials.size(); m++) {
         unsigned seed = (master_seed != 0) ? static_cast<unsigned>(std::rand()) : 0;
@@ -123,9 +128,6 @@ inline void build_grains_from_config(const std::vector<MaterialParamsPtr>& mater
 inline RVE::RVE(const std::string& config_file, unsigned ms)
     : config_path(config_file), master_seed(ms)
 {
-    if (master_seed != 0)
-        std::srand(master_seed);
-
     int num_materials;
     std::vector<std::string> mat_files;
     read_rve_config(config_file, num_materials, mat_files, grains_per_mat);
@@ -154,9 +156,6 @@ inline RVE::RVE(const std::string& config_file, unsigned ms)
 
 inline void RVE::reset()
 {
-    if (master_seed != 0)
-        std::srand(master_seed);
-
     build_grains_from_config(materials, grains, grains_per_mat, master_seed);
 
     total_volume = 0;
