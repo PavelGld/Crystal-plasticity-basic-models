@@ -1,6 +1,6 @@
 ﻿# Crystal Plasticity Grain Model
 
-C++ реализация модели кристаллической пластичности для моделирования деформации и эволюции текстуры поликристаллических материалов.
+C++ реализация модели кристаллической пластичности для моделирования деформации и эволюции текстуры поликристаллических материалов. Header-only библиотека модели + UMAT для Abaqus/Standard.
 
 ## Возможности
 
@@ -18,11 +18,14 @@ C++ реализация модели кристаллической пласт�
 - **Жёсткое и мягкое нагружение** (заданный L или заданный dS/dt)
 - **Параллелизация** через OpenMP
 - **Неявная схема интегрирования** (Newton-Raphson) с консистентным тангенсом — для больших шагов и встраивания в Abaqus/Standard (UMAT)
+- **Связка γ̇↔τc решается методом Ньютона** (не фиксированной итерацией) — устойчиво при любом размере шага, rate-independent
+- **Consistent tangent** переносит упрочнение через подшаги (`dτc/dε`, `dΓ/dε`) — полный 6×6 FD-тангенс совпадает с аналитическим
 - **Multi-element UMAT** — thread-safe реализация с `__declspec(thread)`, валидирована на 8 и 343 элементах
 - **NLGEOM=YES** — поддержка конечных деформаций через Abaqus co-rotational basis (DROT)
 - **Интеграция структур Neper** — реалистичные поликристаллы (сетка + ориентации зёрен) → Abaqus-дек автоматически ([гид](docs/neper-to-abaqus.md))
 - **Параллельное выполнение в Abaqus** — ускорение ~3.7x на 4 ядрах (343 элемента: 48 мин vs ~3 часа)
-- **Оптимизация производительности** — scaled Newton predictor, O(n) Kocks-Mecking (479→34 мкс/вызов)
+- **Оптимизация производительности** — scaled Newton predictor, O(n) Kocks-Mecking
+- **Детерминированная генерация ориентаций RVE** — результат зависит только от seed, не от порядка вызовов
 - Валидация текстур через MTEX pole figures
 
 ## Быстрый старт
@@ -31,7 +34,7 @@ C++ реализация модели кристаллической пласт�
 # 1. собрать UMAT
 cd cp_umat && build_cp_umat.bat && cd ..
 
-# 2. запустить готовый пример (200 зёрен, растяжение 100%, ~8 мин)
+# 2. запустить готовый пример (200 зёрен, растяжение 100%, ~7 мин)
 cd examples/03_neper_200grains_symmetry
 run.bat
 ```
@@ -114,8 +117,10 @@ Brass-type текстура `{110}<112>`:
 
 ### Компиляция
 
+Модель — header-only (`cp_model/`), отдельная сборка библиотеки не нужна.
+
 ```
-Открой EigenProject.sln в Visual Studio 2017
+Открой EigenProject.sln в Visual Studio 2022
 Build → Build Solution (Release x64)
 ```
 
@@ -129,11 +134,11 @@ EigenProject.exe          # работа с моделью (EigenProject.cpp)
 
 ### Запуск валидации текстур
 
-`rotation_validation.cpp` компилируется отдельно (не входит в .sln):
+`rotation_validation_test_results/rotation_validation.cpp` компилируется отдельно (не входит в .sln):
 
 ```bash
-# Из папки проекта:
-cl /EHsc /O2 /openmp /I D:\eigen-3.4.0 rotation_validation.cpp Grain.cpp RVE.cpp MaterialParams.cpp
+# Из корня проекта (модель header-only — только include-путь):
+cl /EHsc /O2 /openmp /I . /I D:\eigen-3.4.0 rotation_validation_test_results\rotation_validation.cpp
 
 rotation_validation.exe           # генерация текстур (4 режима нагружения)
 ```
@@ -143,15 +148,15 @@ rotation_validation.exe           # генерация текстур (4 реж�
 `tests.cpp` — автономные тесты с фреймворком [doctest](https://github.com/doctest/doctest) (`.h` в корне проекта):
 
 ```bash
-# Из папки проекта:
-cl /EHsc /O2 /openmp /I D:\eigen-3.4.0 /D_ENABLE_EXTENDED_ALIGNED_STORAGE tests.cpp Grain.cpp RVE.cpp MaterialParams.cpp
+# Из корня проекта:
+cl /EHsc /O2 /openmp /I . /I D:\eigen-3.4.0 /D_ENABLE_EXTENDED_ALIGNED_STORAGE tests.cpp
 
 tests.exe                         # запуск всех тестов
 tests.exe -s                      # с выводом успешных проверок
 tests.exe --test-case="no rotation"  # фильтр по имени теста
 ```
 
-Тесты: проверка поворота зёрен, базовой функциональности RVE, верификация кривых напряжение-деформация, неявная схема с консистентным тангенсом, multi-element UMAT, thread-safety (18 тестов, 226 checks, допуск 5%, два [slow]).
+Тесты: проверка поворота зёрен, базовой функциональности RVE, верификация кривых напряжение-деформация, неявная схема с консистентным тангенсом, FD-проверка тангенса на полном 6×6, multi-element UMAT, thread-safety (18 тестов, 226 checks, допуск 5%, два [slow]).
 
 ### Сборка и запуск UMAT (Abaqus/Standard)
 
@@ -180,7 +185,7 @@ python scripts/neper2abaqus.py meshes/neper_200gr_11135el out.inp \
 | Сетка | Элементов | Время до 100% |
 |---|---|---|
 | мелкая (C3D10) | 46 499 | ~50 ч |
-| грубая (C3D4) | 11 135 | **~8 мин** |
+| грубая (C3D4) | 11 135 | **~7 мин** |
 
 **Извлечение результатов** (`scripts/`):
 ```bash
@@ -290,14 +295,18 @@ EigenProject/
 │   └── 04_neper_200grains_free/  — Neper, честное растяжение
 │
 ├── docs/                         — документация
+│   ├── neper-to-abaqus.md            — Neper → Abaqus (пошагово)
 │   ├── IMPLICIT_INCREMENT_NOTES.md   — заметки по размеру инкремента
+│   ├── HARDENING_RATE_DEPENDENCE.md  — проблема зависимости упрочнения от шага
+│   ├── HARDENING_COUPLING_VERIFICATION.md — верификация связки γ̇↔τc
+│   ├── parallel-execution-plan.md    — thread-safety в Abaqus
 │   └── archive/                  — история отладки UMAT
 │
 ├── rotation_validation_test_results/  — валидация текстур (standalone + MTEX)
 ├── simulation_experiments/       — эксперименты с шагом dt (standalone)
 │
 ├── EigenProject.cpp/.sln/.vcxproj — standalone-проект (RVE, тесты)
-├── tests.cpp, doctest.h          — автотесты (18 тестов)
+├── tests.cpp, doctest.h          — автотесты (18 тестов, 226 checks)
 ├── grain*.txt, rve*.txt          — конфиги материала и RVE
 │
 ├── CONTEXT.md                    — техническая документация
@@ -444,8 +453,14 @@ $$\bar{\mathbf{P}} = \sum_{g=1}^{N} w_g \cdot \mathbf{P}_g^{lab}$$
 | 3 | `sp_shifts` не занулялись при упругом шаге | Мусор в пластическом спине |
 | 4 | `check_elastic` не возвращал значение | Undefined behavior |
 | 5 | `orient_q` не инициализирован в `init_common()` | Случайный поворот зерна при старте |
+| 6 | **Связка γ̇↔τc**: фиксированная итерация расходилась при большом шаге | Результат зависел от размера шага (до −65% на slow-rate). Заменено на Ньютон |
+| 7 | **Латентный член `R_all`** в тангенсе считался до цикла (всегда 0) | При q=2 терялась главная связь между системами |
+| 8 | **Тангенс `hard_mode=1`** не переносил `dΓ/dε` через подшаги | `E_t ≈ 1/N` от истинного при N подшагах |
+| 9 | **Недетерминированные ориентации RVE**: `srand` не вызывался при `seed=0` | Ориентации зависели от порядка тестов |
+| 10 | **`rot_mode=0`**: `L` не переводился в КСК | Несогласованность при неединичной ориентации |
+| 11 | **Сдвиговая жёсткость `P_v(3,3)`**: `c44` вместо `2·c44` | Для инженерной нотации верна `2·c44`; проверено численно (даёт `C44`) |
 
-Подробности в [CONTEXT.md](CONTEXT.md).
+Подробности в [CONTEXT.md](CONTEXT.md) и [docs/](docs/).
 
 ## Зависимости
 
@@ -453,7 +468,8 @@ $$\bar{\mathbf{P}} = \sum_{g=1}^{N} w_g \cdot \mathbf{P}_g^{lab}$$
 - [doctest](https://github.com/doctest/doctest) (`.h` в корне, для автотестов)
 - C++14
 - OpenMP (опционально)
-- MATLAB + MTEX (для валидации текстур)
+- MSVC 2022 + Intel oneAPI (для сборки UMAT), Abaqus 2022
+- MATLAB + MTEX (для валидации текстур, опционально)
 
 ## Лицензия
 
