@@ -51,19 +51,6 @@ run.bat
 **Интеграция сеток из Neper** — пошаговая инструкция:
 [`docs/neper-to-abaqus.md`](docs/neper-to-abaqus.md).
 
-## Распределение напряжений
-
-Поля напряжений после деформации (результат UMAT в Abaqus). Цвет — `S33` (осевое
-напряжение) по элементам; разброс отражает разные ориентации зёрен.
-
-**Куб 343 элемента, материал-на-элемент, растяжение 30%** (`S33` = 27.6…74.0 МПа):
-
-![S33 field, 343 cube](examples/02_cube_343_random/field_343.png)
-
-**Реалистичная структура Neper (200 зёрен, 11 135 элементов), растяжение 100%**:
-
-![S33 field, Neper](examples/03_neper_200grains_symmetry/field_neper.png)
-
 ## Валидация текстур
 
 Модель прошла валидацию для FCC материала (Cu, Al) — 12 систем скольжения {111}<110>. Полюсные фигуры на 100% деформации совпали с литературными данными:
@@ -205,7 +192,6 @@ python scripts/neper2abaqus.py meshes/neper_200gr_11135el out.inp \
 abaqus python scripts/extract_s33.py model s33.txt        # S33 по элементам
 abaqus python scripts/extract_quats.py model quats.txt    # ориентации (SDV7-10)
 python scripts/polefigures.py quats.txt PF.png "title" 0  # полюсные фигуры (ось X)
-abaqus python scripts/plot_field.py model field.png 2     # поле S33 (scatter)
 ```
 
 ### Построение полюсных фигур (MATLAB + MTEX)
@@ -296,8 +282,7 @@ EigenProject/
 │   ├── neper2abaqus.py           — Neper mesh.inp/.ori → Abaqus deck
 │   ├── extract_s33.py            — ODB → S33 по элементам
 │   ├── extract_quats.py          — ODB → ориентации решётки (SDV7-10)
-│   ├── polefigures.py            — ориентации → {100}/{110}/{111} полюсные фигуры
-│   └── plot_field.py             — ODB → поле напряжений (scatter по элементам)
+│   └── polefigures.py            — ориентации → {100}/{110}/{111} полюсные фигуры
 │
 ├── meshes/                       — структуры Neper (200 зёрен)
 │   ├── neper_200gr_11135el/      — грубая сетка (C3D4, быстрая)
