@@ -31,7 +31,9 @@ static void build_slip_systems(MaterialParams& p)
             p.Wpm[i*2](j,k) = 0.5*(bn[j]*nn[k] - bn[k]*nn[j]);
         }
         Eigen::Matrix3d Ms = 0.5*(p.M[i*2] + p.M[i*2].transpose());
-        tensorToVoigtInPlace(Ms, p.Ms_v[i*2]);
+        // Тензорные компоненты сдвига (без x2): tau = sigma_v * Ms_v = sigma : Ms.
+        // Инженерная нотация (x2) хранится отдельно в MsE_v и используется только в Dp.
+        p.Ms_v[i*2] << Ms(0,0), Ms(1,1), Ms(2,2), Ms(1,2), Ms(0,2), Ms(0,1);
         p.MsE_v[i*2] = p.Ms_v[i*2]; p.MsE_v[i*2](3)*=2; p.MsE_v[i*2](4)*=2; p.MsE_v[i*2](5)*=2;
         for(int j=0;j<3;j++) bn[j] = -bn[j];
         p.M[i*2+1].setZero(); p.Wpm[i*2+1].setZero();
@@ -40,7 +42,7 @@ static void build_slip_systems(MaterialParams& p)
             p.Wpm[i*2+1](j,k) = 0.5*(bn[j]*nn[k] - bn[k]*nn[j]);
         }
         Ms = 0.5*(p.M[i*2+1] + p.M[i*2+1].transpose());
-        tensorToVoigtInPlace(Ms, p.Ms_v[i*2+1]);
+        p.Ms_v[i*2+1] << Ms(0,0), Ms(1,1), Ms(2,2), Ms(1,2), Ms(0,2), Ms(0,1);
         p.MsE_v[i*2+1] = p.Ms_v[i*2+1]; p.MsE_v[i*2+1](3)*=2; p.MsE_v[i*2+1](4)*=2; p.MsE_v[i*2+1](5)*=2;
     }
 }

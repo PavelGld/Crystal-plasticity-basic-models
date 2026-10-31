@@ -210,4 +210,13 @@ cd cp_umat
 build_cp_umat.bat    # uses /GR- /EHsc- /DABAQUS_UMAT
 ```
 
+UMAT vs standalone model (regression, no Abaqus):
+```bat
+cp_umat\run_test_umat_vs_grain.bat
+```
+Calls `umat_()` directly and compares stress and `DDSDDE` against `Grain`
+for uniaxial and shear loading, identity and random orientation. Catches
+notation errors that are invisible under identity-orientation uniaxial
+tension. Exit code 0 = pass.
+
 Requires: Visual Studio 2022 (Community), Eigen 3.4 at `D:\eigen-3.4.0`, Intel oneAPI (for Abaqus linker, `C:\Program Files (x86)\Intel\oneAPI\setvars.bat`), Abaqus 2022.
