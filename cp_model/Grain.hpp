@@ -334,6 +334,11 @@ inline void Grain::init_common()
 
     T_voigt_valid = false;
     random_state = 0;
+
+    // КМ-матрица H задаётся состоянием tc (params->H — только заглушка структуры).
+    // Без этого первый инкремент шёл с H = 1/2 вместо A*h0*(1-tc/ts)^alfa.
+    // То же делает reset_state(); оба пути должны совпадать.
+    if (params->hard_mode == 2) update_H_KM();
 }
 
 inline void Grain::clear()
