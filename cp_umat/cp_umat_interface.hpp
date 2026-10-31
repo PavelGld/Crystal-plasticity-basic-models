@@ -10,5 +10,5 @@ public:
     static Grain* get_grain_for_thread(const MaterialParams* params);
     static void load_state(Grain* g, const double* STATEV);
     static void save_state(const Grain* g, double* STATEV);
-    static void step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, double* DDSDDE, double& PNEWDT);
+    static void step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, double* DDSDDE, double& PNEWDT, double& SSE, double& SPD);
 };

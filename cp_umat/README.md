@@ -219,4 +219,15 @@ for uniaxial and shear loading, identity and random orientation. Catches
 notation errors that are invisible under identity-orientation uniaxial
 tension. Exit code 0 = pass.
 
+UMAT interface tests (ordering, objectivity, energy, large strain):
+```bat
+cp_umat\run_test_umat_interface.bat
+```
+Checks the Abaqus component order (`STRESS`/`DSTRAN`/`DDSDDE`), rigid-rotation
+objectivity via `DROT`, the `SSE`/`SPD` energy balance against the external
+work, and a 100% simple-shear path against the standalone `Grain`.
+
+`SSE`/`SPD` are accumulated per converged substep in `Grain::Simulate_Step`
+(trapezoidal work); `SCD` and `RPL` stay zero (no creep, no volumetric heat).
+
 Requires: Visual Studio 2022 (Community), Eigen 3.4 at `D:\eigen-3.4.0`, Intel oneAPI (for Abaqus linker, `C:\Program Files (x86)\Intel\oneAPI\setvars.bat`), Abaqus 2022.

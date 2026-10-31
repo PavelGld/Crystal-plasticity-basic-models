@@ -63,6 +63,15 @@ class Grain
     double acc_def, sim_time;  // grain-level state (used when modeling a single grain)
     double volume = 1.0;
 
+    // Energy increments of the last Simulate_Step (per unit volume).
+    // sigma_v stores doubled shear, e_v is engineering (doubled shear):
+    //   sigma:e = sum_diag + 0.5 * sum_shear
+    double d_sse = 0.0, d_spd = 0.0;
+    static double voigt_work(const Vector6d& s, const Vector6d& e) {
+        return s(0)*e(0) + s(1)*e(1) + s(2)*e(2)
+             + 0.5 * (s(3)*e(3) + s(4)*e(4) + s(5)*e(5));
+    }
+
     static constexpr double ROTATION_ANGLE_THRESHOLD = 1e-14;
     static constexpr double TIME_EPSILON = 1e-15;
     static constexpr double DS_CRITICAL = 1.7e-6;
@@ -185,6 +194,8 @@ public:
     // State variables
     double get_acc_def() const { return acc_def; }
     double get_time() const { return sim_time; }
+    double get_d_sse() const { return d_sse; }
+    double get_d_spd() const { return d_spd; }
 
     // Deformation
     const Eigen::Matrix3d& get_strain() const { return strain_gl; }
@@ -739,6 +750,7 @@ inline void Grain::assemble_J(double dt)
 inline void Grain::solve_implicit(double dt, int depth, double weight)
 {
     int n = 2 * params->num_slip_sys;
+    const Vector6d sigma_e0 = Stress_v;   // start-of-substep stress for the energy increment
 
     rate_factor_impl = params->strain_rate_infl * computeDeviatoricDu();
     warm_valid = false;   // новый подшаг: tc и rf другие
@@ -967,6 +979,16 @@ inline void Grain::solve_implicit(double dt, int depth, double weight)
     if (params->hard_mode == 2)
         update_H_KM();
 
+    // Energy increments of this converged substep (trapezoidal work).
+    // dW = sigma:deps, dWp = sigma:deps_p, dWe = dW - dWp.
+    {
+        const Vector6d s_sum = Stress_v + sigma_e0;
+        const double dW  = 0.5 * voigt_work(s_sum, D_v) * dt;
+        const double dWp = 0.5 * voigt_work(s_sum, Dp_v) * dt;
+        d_spd += dWp;
+        d_sse += dW - dWp;
+    }
+
     tangent_valid = true;
 
     apply_rotation(dt);
@@ -1000,6 +1022,9 @@ inline void Grain::updateOrientation(const Eigen::Matrix3d& Omega, double dt)
 
 inline void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
 {
+    d_sse = 0.0;
+    d_spd = 0.0;
+
     // Compute equivalent strain increment from Lnew (lab frame, rotation-invariant)
     Buf.noalias() = 0.5 * (Lnew + Lnew.transpose());
     tensorToVoigtInPlace(Buf, D_v);
@@ -1047,6 +1072,7 @@ inline void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
         tensorToVoigtInPlace(Buf, D_v);
 
         // Elastic-plastic split for this substep
+        const Vector6d sigma_e0 = Stress_v;
         if (params->integ_mode == 1) {
             solve_implicit(actual_dt, 0, actual_dt / dt);
         } else {
@@ -1065,6 +1091,12 @@ inline void Grain::Simulate_Step(double dt, const Eigen::Matrix3d& Lnew)
                 }
                 dT = actual_dt - Sum_time;
             }
+
+            const Vector6d s_sum = Stress_v + sigma_e0;
+            const double dW  = 0.5 * voigt_work(s_sum, D_v) * actual_dt;
+            const double dWp = 0.5 * voigt_work(s_sum, Dp_v) * actual_dt;
+            d_spd += dWp;
+            d_sse += dW - dWp;
         }
 
         exp_buf.noalias() = actual_dt * L;

@@ -139,7 +139,7 @@ void CPUMAT::save_state(const Grain* g, double* STATEV)
 }
 
 // === Integration step =====================================================
-void CPUMAT::step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, double* DDSDDE, double& PNEWDT)
+void CPUMAT::step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, double* DDSDDE, double& PNEWDT, double& SSE, double& SPD)
 {
     // PNEWDT: НЕ трогать по умолчанию. Abaqus передаёт большое значение и берёт минимум по всем
     // вызовам как множитель нового dt; безусловное PNEWDT = 1.0 запрещало Abaqus увеличивать шаг
@@ -166,6 +166,11 @@ void CPUMAT::step(Grain* g, const double* DSTRAN, double DTIME, double* STRESS, 
     Eigen::Matrix3d L = Dt / DTIME;
 
     g->Simulate_Step(DTIME, L);
+
+    if (!g->get_step_failed()) {
+        SSE += g->get_d_sse();
+        SPD += g->get_d_spd();
+    }
 
     Eigen::Matrix3d sl = g->get_stress_lab();
     Vector6d sv; tensorToVoigtInPlace(sl, sv);
@@ -232,7 +237,7 @@ extern "C" void umat_(
             DROT_mat(i, j) = DROT[i + j * 3];
     g->apply_basis_rotation(DROT_mat);
 
-    CPUMAT::step(g, DSTRAN, *DTIME, STRESS, DDSDDE, PNEWDT);
+    CPUMAT::step(g, DSTRAN, *DTIME, STRESS, DDSDDE, PNEWDT, SSE, SPD);
     CPUMAT::save_state(g, STATEV);
 }
 
