@@ -1,0 +1,13 @@
+build/
+*.exe
+*.obj
+*.log
+*.quats
+
+# scratch outputs of the comparison runs
+out_*.txt
+!out_umat_tension.txt
+!out_umat_compression.txt
+!out_umat_simple_shear.txt
+!out_umat_planar.txt
+!out_umat_complex.txt
